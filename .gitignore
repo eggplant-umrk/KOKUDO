@@ -18,6 +18,10 @@ build/
 .DS_Store
 Thumbs.db
 
+# Firebase設定ファイル
+google-services.json
+GoogleService-Info.plist
+
 # 署名鍵・証明書
 *.jks
 *.p8
