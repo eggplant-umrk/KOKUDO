@@ -28,3 +28,12 @@ GoogleService-Info.plist
 *.p12
 *.key
 *.mobileprovision
+
+# 誤ってリポジトリ直下に生成されたFlutter/OSプラットフォームフォルダ
+# (実体は app/ 配下にあるため、直下のものは除外する)
+/android/
+/ios/
+/linux/
+/macos/
+/windows/
+/web/
