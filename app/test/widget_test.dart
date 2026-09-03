@@ -1,30 +1,24 @@
-// This is a basic Flutter widget test.
+// KokudoRunApp のスモークテスト。
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// アプリが例外なく起動できること、およびホーム画面の主要な要素が
+// 表示されていることを確認する。
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:kokudo/main.dart';
+import 'package:kokudo/app.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('KokudoRunApp launches without throwing', (WidgetTester tester) async {
+    await tester.pumpWidget(const KokudoRunApp());
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Home screen shows the start running button', (WidgetTester tester) async {
+    await tester.pumpWidget(const KokudoRunApp());
+    await tester.pump();
+
+    expect(find.text('ランニング開始'), findsOneWidget);
   });
 }
