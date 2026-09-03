@@ -42,3 +42,16 @@ class RunLog {
     };
   }
 }
+
+/// ランニング計測画面の終了時に呼び出し元へ渡す結果（DB保存前の一時データ）。
+class RunResult {
+  final double distanceKm;
+  final int durationSeconds;
+  final int caloriesBurned;
+
+  const RunResult({
+    required this.distanceKm,
+    required this.durationSeconds,
+    required this.caloriesBurned,
+  });
+}

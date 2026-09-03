@@ -1,5 +1,31 @@
 import 'route_checkpoint.dart';
 
+/// 8地方の区分。
+enum RegionKey {
+  hokkaido,
+  tohoku,
+  kanto,
+  chubu,
+  kinki,
+  chugoku,
+  shikoku,
+  kyushuOkinawa,
+}
+
+const Map<RegionKey, String> regionLabel = {
+  RegionKey.hokkaido: '北海道',
+  RegionKey.tohoku: '東北',
+  RegionKey.kanto: '関東',
+  RegionKey.chubu: '中部',
+  RegionKey.kinki: '近畿',
+  RegionKey.chugoku: '中国',
+  RegionKey.shikoku: '四国',
+  RegionKey.kyushuOkinawa: '九州・沖縄',
+};
+
+/// 路線の難易度。
+enum RouteDifficulty { tutorial, beginner, intermediate, advanced, challenge }
+
 /// 国道の起点・終点を表す座標。
 class RoutePoint {
   final double lat;
@@ -21,6 +47,15 @@ class NationalRoute {
   /// 端末内に保持するGeoJSONファイルへのパス（asset or ローカルストレージ）。
   final String geojsonPath;
 
+  /// 8地方区分（走破・地図コレクション画面の地方フィルターで使用）。
+  final RegionKey region;
+
+  /// 路線の難易度（初心者向け〜チャレンジ枠）。
+  final RouteDifficulty difficulty;
+
+  /// おすすめ理由（ホーム画面・一覧での紹介文）。
+  final String recommendReason;
+
   final List<RouteCheckpoint> checkpoints;
 
   const NationalRoute({
@@ -31,6 +66,9 @@ class NationalRoute {
     required this.endPoint,
     required this.totalDistanceKm,
     required this.geojsonPath,
+    required this.region,
+    required this.difficulty,
+    required this.recommendReason,
     this.checkpoints = const [],
   });
 
@@ -54,6 +92,9 @@ class NationalRoute {
       ),
       totalDistanceKm: (map['total_distance_km'] as num).toDouble(),
       geojsonPath: map['geojson_path'] as String,
+      region: RegionKey.values.byName(map['region'] as String),
+      difficulty: RouteDifficulty.values.byName(map['difficulty'] as String),
+      recommendReason: map['recommend_reason'] as String,
       checkpoints: checkpoints,
     );
   }
@@ -71,6 +112,9 @@ class NationalRoute {
       'end_label': endPoint.label,
       'total_distance_km': totalDistanceKm,
       'geojson_path': geojsonPath,
+      'region': region.name,
+      'difficulty': difficulty.name,
+      'recommend_reason': recommendReason,
     };
   }
 }

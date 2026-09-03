@@ -1,5 +1,10 @@
 import 'dart:convert';
 
+/// ユーザー視点での路線の挑戦状況。
+/// 一度にチャレンジできるのは1路線のみのため、進捗が付いていても
+/// currentDistanceKm が0より大きい路線だけを「挑戦中」とみなす。
+enum RouteStatus { notStarted, inProgress, completed }
+
 /// ユーザーごとの国道走破進捗・目標設定。
 class UserRouteProgress {
   final String userId;
