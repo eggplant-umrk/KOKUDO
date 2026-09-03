@@ -2,7 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../models/route_models.dart';
+import '../models/national_route.dart';
+import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
 
 /// 走破・地図コレクション画面用の簡易日本地図。
@@ -31,13 +32,13 @@ const List<_RegionBlob> _blobs = [
   _RegionBlob(RegionKey.kyushuOkinawa, '九州・沖縄', 33, 205, 19, 17, 29),
 ];
 
-const Map<int, Offset> _markerOffset = {
-  174: Offset(11, 9),
-  130: Offset(-10, -9),
-  134: Offset(10, -3),
-  1: Offset(-2, 11),
-  292: Offset(-5, -10),
-  4: Offset(2, -7),
+const Map<String, Offset> _markerOffset = {
+  '174': Offset(11, 9),
+  '130': Offset(-10, -9),
+  '134': Offset(10, -3),
+  '1': Offset(-2, 11),
+  '292': Offset(-5, -10),
+  '4': Offset(2, -7),
 };
 
 const Map<RouteStatus, Color> _statusFill = {
@@ -99,7 +100,7 @@ class JapanMapPanel extends StatefulWidget {
   final List<NationalRoute> routes;
   final RegionKey? activeRegion; // nullは「すべて」
   final ValueChanged<RegionKey?> onSelectRegion;
-  final RouteStatus Function(int routeId) statusOf;
+  final RouteStatus Function(String routeId) statusOf;
 
   const JapanMapPanel({
     super.key,
@@ -182,7 +183,7 @@ class _JapanMapPanelState extends State<JapanMapPanel> with SingleTickerProvider
 class _JapanMapPainter extends CustomPainter {
   final List<NationalRoute> routes;
   final RegionKey? activeRegion;
-  final RouteStatus Function(int routeId) statusOf;
+  final RouteStatus Function(String routeId) statusOf;
   final double pulseT;
 
   _JapanMapPainter({

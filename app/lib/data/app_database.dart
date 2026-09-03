@@ -46,7 +46,10 @@ class AppDatabase {
       end_lng REAL NOT NULL,
       end_label TEXT,
       total_distance_km REAL NOT NULL,
-      geojson_path TEXT NOT NULL
+      geojson_path TEXT NOT NULL,
+      region TEXT NOT NULL,
+      difficulty TEXT NOT NULL,
+      recommend_reason TEXT NOT NULL
     )
     ''',
     '''

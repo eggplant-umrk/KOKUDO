@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart' as mock;
-import '../models/route_models.dart';
+import '../models/national_route.dart';
+import '../models/route_checkpoint.dart';
+import '../models/run_log.dart';
 import '../theme/app_colors.dart';
 import '../utils/pace_utils.dart';
 import '../widgets/gradient_button.dart';
@@ -103,22 +105,22 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     final caloriesBurned = (_distanceKm * 62).round();
     final currentAbsoluteKm = _startDistanceKm + _distanceKm;
 
-    Checkpoint? nextCheckpoint;
+    RouteCheckpoint? nextCheckpoint;
     for (final c in route.checkpoints) {
-      if (c.distanceFromStartKm > currentAbsoluteKm) {
+      if (c.distanceKmFromStart > currentAbsoluteKm) {
         nextCheckpoint = c;
         break;
       }
     }
     var prevCheckpointKm = _startDistanceKm;
     for (final c in route.checkpoints) {
-      if (c.distanceFromStartKm <= currentAbsoluteKm) {
-        prevCheckpointKm = c.distanceFromStartKm;
+      if (c.distanceKmFromStart <= currentAbsoluteKm) {
+        prevCheckpointKm = c.distanceKmFromStart;
       }
     }
     var stepRatio = 1.0;
     if (nextCheckpoint != null) {
-      final denom = (nextCheckpoint.distanceFromStartKm - prevCheckpointKm);
+      final denom = (nextCheckpoint.distanceKmFromStart - prevCheckpointKm);
       final safeDenom = denom < 0.001 ? 0.001 : denom;
       stepRatio = ((currentAbsoluteKm - prevCheckpointKm) / safeDenom).clamp(0.0, 1.0).toDouble();
     }
@@ -143,7 +145,7 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
 
   Widget _buildMiniStepBar(
     NationalRoute route,
-    Checkpoint? nextCheckpoint,
+    RouteCheckpoint? nextCheckpoint,
     double currentAbsoluteKm,
     double stepRatio,
   ) {
@@ -157,14 +159,14 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
             children: [
               Flexible(
                 child: Text(
-                  '次のチェックポイント：${nextCheckpoint?.name ?? route.endPoint}',
+                  '次のチェックポイント：${nextCheckpoint?.name ?? route.endPoint.label ?? ''}',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.55)),
                 ),
               ),
               Text(
                 nextCheckpoint != null
-                    ? 'あと ${(nextCheckpoint.distanceFromStartKm - currentAbsoluteKm).toStringAsFixed(1)}km'
+                    ? 'あと ${(nextCheckpoint.distanceKmFromStart - currentAbsoluteKm).toStringAsFixed(1)}km'
                     : 'ゴール目前',
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white.withValues(alpha: 0.85)),
               ),

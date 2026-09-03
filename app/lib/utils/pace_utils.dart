@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
-import '../models/route_models.dart';
+import '../models/national_route.dart';
+import '../models/user_route_progress.dart';
 
 class GoalNavResult {
   final double remainingDistanceKm;
@@ -34,7 +35,8 @@ GoalNavResult computeGoalNav(
   final currentTime = now ?? DateTime.now();
   final remainingDistanceKm =
       math.max(route.totalDistanceKm - progress.currentDistanceKm, 0.0);
-  final target = DateTime.parse('${progress.targetEndDate}T23:59:59');
+  final endDate = progress.targetEndDate;
+  final target = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
   const msPerDay = 24 * 60 * 60 * 1000;
   final rawRemainingDays =
       (target.difference(currentTime).inMilliseconds / msPerDay).ceil();
@@ -70,10 +72,7 @@ GoalNavResult computeGoalNav(
 String formatKm(double value, {int digits = 1}) =>
     '${value.toStringAsFixed(digits)}km';
 
-String formatDate(String iso) {
-  final d = DateTime.parse('${iso}T00:00:00');
-  return '${d.year}年${d.month}月${d.day}日';
-}
+String formatDate(DateTime date) => '${date.year}年${date.month}月${date.day}日';
 
 String formatDurationClock(int totalSeconds) {
   final m = totalSeconds ~/ 60;
@@ -84,7 +83,13 @@ String formatDurationClock(int totalSeconds) {
 String formatPace(int totalSeconds, double distanceKm) {
   if (distanceKm <= 0) return "--'--\"";
   final secPerKm = totalSeconds / distanceKm;
-  final m = secPerKm ~/ 60;
-  final s = (secPerKm % 60).round();
+  var m = secPerKm ~/ 60;
+  var s = (secPerKm % 60).round();
+  // 60.0秒ちょうどに丸められた場合は繰り上げて分側に加算する
+  // （例: secPerKm=119.6 → 従来は "1'60"" のような不正表示になっていた）
+  if (s == 60) {
+    s = 0;
+    m += 1;
+  }
   return "$m'${s.toString().padLeft(2, '0')}\"";
 }

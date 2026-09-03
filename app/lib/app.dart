@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'models/route_models.dart';
+import 'models/run_log.dart';
 import 'screens/home_screen.dart';
 import 'screens/map_collection_screen.dart';
 import 'screens/running_screen.dart';

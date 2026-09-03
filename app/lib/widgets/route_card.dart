@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../models/route_models.dart';
+import '../models/national_route.dart';
+import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
+import '../utils/pace_utils.dart';
 import 'progress_bar.dart';
 
 const Map<RouteStatus, Color> _statusColor = {
@@ -51,7 +53,7 @@ class RouteCard extends StatelessWidget {
     final digits = route.totalDistanceKm < 1 ? 3 : 1;
     var meta = '${regionLabel[route.region]} ・ ${route.totalDistanceKm.toStringAsFixed(digits)}km';
     if (status == RouteStatus.inProgress && progress != null) {
-      meta += ' ・ 目標 ${progress!.targetEndDate}';
+      meta += ' ・ 目標 ${formatDate(progress!.targetEndDate)}';
     }
 
     return Container(

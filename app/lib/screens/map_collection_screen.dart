@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart' as mock;
-import '../models/route_models.dart';
+import '../models/national_route.dart';
+import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
 import '../widgets/japan_map_panel.dart';
 import '../widgets/route_card.dart';

@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../models/route_models.dart';
+import '../models/national_route.dart';
 import '../theme/app_colors.dart';
 import 'goal_speech_bubble.dart';
 
@@ -16,9 +16,9 @@ import 'goal_speech_bubble.dart';
 class HeroStage extends StatelessWidget {
   final NationalRoute route;
   final double currentDistanceKm;
-  final String targetEndDate;
+  final DateTime targetEndDate;
   final int? runsPerWeekGoal;
-  final ValueChanged<String> onChangeTargetEndDate;
+  final ValueChanged<DateTime> onChangeTargetEndDate;
   final ValueChanged<int?> onChangeRunsPerWeekGoal;
   final String passedLandmark; // 例: "42.0km地点｜小田原市"
   final String nextCheckpointLabel; // 例: "箱根峠まであと 12.4km"
@@ -44,11 +44,7 @@ class HeroStage extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Image.asset(
-                  'assets/road-bg.webp',
-                  fit: BoxFit.cover,
-                  alignment: const Alignment(0, -0.44), // object-position: 50% 28% 相当
-                ),
+                _buildRoadBackground(),
                 // 注: ノッチ／ステータスバーの回避は、常に画面最上部に表示される
                 // ルートシェルのdev-navが既に確保しているため、ここではSafeAreaを
                 // 重ねて二重にパディングしない。
@@ -118,6 +114,29 @@ class HeroStage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// 走路の背景イラスト。画像が未コミット・読み込み失敗の場合は、
+  /// キャラクター画像と同様にグラデーションのフォールバック表示に切り替える。
+  Widget _buildRoadBackground() {
+    return Image.asset(
+      'assets/road-bg.webp',
+      fit: BoxFit.cover,
+      alignment: const Alignment(0, -0.44), // object-position: 50% 28% 相当
+      errorBuilder: (context, error, stackTrace) => _roadBackgroundFallback(),
+    );
+  }
+
+  Widget _roadBackgroundFallback() {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppColors.routeSignBlue, AppColors.bgSurface],
+        ),
+      ),
     );
   }
 
@@ -199,7 +218,7 @@ class HeroStage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           color: const Color(0x66142236),
           child: Text(
-            '${route.startPoint} 〜 ${route.endPoint}',
+            '${route.startPoint.label ?? ''} 〜 ${route.endPoint.label ?? ''}',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 12,

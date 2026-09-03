@@ -1,34 +1,29 @@
 import 'package:flutter/material.dart';
 
-import '../models/route_models.dart';
+import '../models/national_route.dart';
+import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
 import '../utils/pace_utils.dart';
 import 'progress_bar.dart';
 
-String _twoDigits(int n) => n.toString().padLeft(2, '0');
-
-String _isoDate(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${_twoDigits(d.month)}-${_twoDigits(d.day)}';
-
-String _presetDate(String preset) {
+DateTime _presetDate(String preset) {
   final now = DateTime.now();
-  DateTime d;
   if (preset == 'thisMonth') {
-    d = DateTime(now.year, now.month + 1, 0);
+    return DateTime(now.year, now.month + 1, 0);
   } else if (preset == 'nextMonth') {
-    d = DateTime(now.year, now.month + 2, 0);
+    return DateTime(now.year, now.month + 2, 0);
   } else {
-    d = DateTime(now.year, now.month + 3, now.day);
+    return DateTime(now.year, now.month + 3, now.day);
   }
-  return _isoDate(d);
 }
 
 /// 完走ナビ（逆算計算）を、キャラクターが吹き出しで話しかけてくる形で表示する。
 class GoalSpeechBubble extends StatefulWidget {
   final NationalRoute route;
   final double currentDistanceKm;
-  final String targetEndDate;
+  final DateTime targetEndDate;
   final int? runsPerWeekGoal;
-  final ValueChanged<String> onChangeTargetEndDate;
+  final ValueChanged<DateTime> onChangeTargetEndDate;
   final ValueChanged<int?> onChangeRunsPerWeekGoal;
 
   const GoalSpeechBubble({
@@ -71,15 +66,14 @@ class _GoalSpeechBubbleState extends State<GoalSpeechBubble> {
   }
 
   Future<void> _pickDate() async {
-    final initial = DateTime.tryParse(widget.targetEndDate) ?? DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial,
+      initialDate: widget.targetEndDate,
       firstDate: DateTime(2020, 1, 1),
       lastDate: DateTime(2100, 12, 31),
     );
     if (picked != null) {
-      widget.onChangeTargetEndDate(_isoDate(picked));
+      widget.onChangeTargetEndDate(picked);
     }
   }
 
@@ -94,7 +88,7 @@ class _GoalSpeechBubbleState extends State<GoalSpeechBubble> {
         targetEndDate: widget.targetEndDate,
         runsPerWeekGoal: widget.runsPerWeekGoal,
         isCompleted: false,
-        startedAt: DateTime.now().toIso8601String(),
+        startedAt: DateTime.now(),
         completedAt: null,
         clearedCheckpoints: const [],
       ),
@@ -270,7 +264,7 @@ class _GoalSpeechBubbleState extends State<GoalSpeechBubble> {
               borderRadius: BorderRadius.circular(8),
               color: AppColors.bgSurface,
             ),
-            child: Text(widget.targetEndDate, style: const TextStyle(color: AppColors.textPrimary)),
+            child: Text(formatDate(widget.targetEndDate), style: const TextStyle(color: AppColors.textPrimary)),
           ),
         ),
       ],

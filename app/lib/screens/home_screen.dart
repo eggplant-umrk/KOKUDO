@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart' as mock;
-import '../models/route_models.dart';
+import '../models/route_checkpoint.dart';
 import '../theme/app_colors.dart';
 import '../utils/pace_utils.dart';
 import '../widgets/gradient_button.dart';
@@ -19,7 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   // デモ用: 完走ナビの目標日・週間ペースをこの画面のローカル状態として保持
-  String _targetEndDate = '2026-10-31';
+  DateTime _targetEndDate = DateTime(2026, 10, 31);
   int? _runsPerWeekGoal = 3;
   final double _currentDistanceKm = 42.5;
 
@@ -27,16 +27,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final route = mock.getRoute(mock.activeRouteId)!;
 
-    Checkpoint? nextCheckpoint;
+    RouteCheckpoint? nextCheckpoint;
     for (final c in route.checkpoints) {
-      if (c.distanceFromStartKm > _currentDistanceKm) {
+      if (c.distanceKmFromStart > _currentDistanceKm) {
         nextCheckpoint = c;
         break;
       }
     }
-    Checkpoint? lastCheckpoint;
+    RouteCheckpoint? lastCheckpoint;
     for (final c in route.checkpoints.reversed) {
-      if (c.distanceFromStartKm <= _currentDistanceKm) {
+      if (c.distanceKmFromStart <= _currentDistanceKm) {
         lastCheckpoint = c;
         break;
       }
@@ -46,7 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ? '${_currentDistanceKm.toStringAsFixed(1)}km地点｜${lastCheckpoint.name}'
         : '${_currentDistanceKm.toStringAsFixed(1)}km地点';
     final nextCheckpointLabel = nextCheckpoint != null
-        ? '${nextCheckpoint.name}まであと ${(nextCheckpoint.distanceFromStartKm - _currentDistanceKm).toStringAsFixed(1)}km'
+        ? '${nextCheckpoint.name}まであと ${(nextCheckpoint.distanceKmFromStart - _currentDistanceKm).toStringAsFixed(1)}km'
         : 'まもなくゴール！';
 
     return Container(
