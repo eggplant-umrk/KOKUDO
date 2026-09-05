@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart' as mock;
+import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/route_checkpoint.dart';
 import '../models/run_log.dart';
@@ -24,15 +24,23 @@ class RunningScreen extends StatefulWidget {
 
 class _RunningScreenState extends State<RunningScreen> with SingleTickerProviderStateMixin {
   // デモ用の想定ペース（≈5'43"/km）
+  // TODO: 実GPS化（geolocator + Haversine公式）で置き換え予定。
   static const double _avgSpeedKmph = 10.5;
   static const double _kmPerSecond = _avgSpeedKmph / 3600;
   static const int _holdToEndMs = 1200;
-  static const double _startDistanceKm = 42.5;
+
+  final RouteRepository _repo = RouteRepository.instance;
+
+  bool _loading = true;
+  String? _routeId;
+  NationalRoute? _route;
+  double _startDistanceKm = 0;
 
   bool _hasStarted = false;
   double _distanceKm = 0;
   int _durationSeconds = 0;
   bool _isPaused = false;
+  bool _finishing = false;
 
   Timer? _timer;
   late final AnimationController _holdController;
@@ -48,6 +56,20 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
           _finish();
         }
       });
+    _load();
+  }
+
+  Future<void> _load() async {
+    final routeId = await _repo.getActiveRouteId();
+    final route = await _repo.getRoute(routeId);
+    final progress = await _repo.getProgress(routeId);
+    if (!mounted) return;
+    setState(() {
+      _routeId = routeId;
+      _route = route;
+      _startDistanceKm = progress?.currentDistanceKm ?? 0;
+      _loading = false;
+    });
   }
 
   @override
@@ -88,20 +110,44 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     _holdController.value = 0;
   }
 
-  void _finish() {
+  Future<void> _finish() async {
     _holdController.stop();
     _holdController.value = 0;
+    if (_finishing) return;
+    _finishing = true;
+
+    _timer?.cancel();
+    final routeId = _routeId;
     final caloriesBurned = (_distanceKm * 62).round();
-    widget.onFinish(RunResult(
+    final result = RunResult(
       distanceKm: _distanceKm,
       durationSeconds: _durationSeconds,
       caloriesBurned: caloriesBurned,
-    ));
+    );
+
+    if (routeId != null && _distanceKm > 0) {
+      await _repo.recordRun(
+        routeId: routeId,
+        distanceKm: _distanceKm,
+        durationSeconds: _durationSeconds,
+        caloriesBurned: caloriesBurned,
+      );
+    }
+
+    if (!mounted) return;
+    widget.onFinish(result);
   }
 
   @override
   Widget build(BuildContext context) {
-    final route = mock.getRoute(mock.activeRouteId)!;
+    if (_loading || _route == null) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
+      );
+    }
+
+    final route = _route!;
     final caloriesBurned = (_distanceKm * 62).round();
     final currentAbsoluteKm = _startDistanceKm + _distanceKm;
 
