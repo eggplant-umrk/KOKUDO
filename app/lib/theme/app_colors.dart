@@ -28,6 +28,8 @@ class AppColors {
   static const textTertiary = Color(0xFF92A3AE);
   static const borderSubtle = Color(0xFFE1EEF5);
   static const routeInactive = Color(0xFFCFDBE2);
+  // 走破・地図コレクション画面の地図マーカー用ネオンブルー（挑戦中）
+  static const routeNeonBlue = Color(0xFF2FA9FF);
   static const danger = Color(0xFFE4536A);
   static const dangerBg = Color(0x1AE4536A); // rgba(228,83,106,0.1)
   static const dangerBgOnDark = Color(0x2EE4536A); // rgba(228,83,106,0.18)

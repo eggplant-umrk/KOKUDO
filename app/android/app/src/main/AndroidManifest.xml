@@ -2,6 +2,8 @@
     <!-- ランニング計測画面のGPS実測（geolocator）に必要な位置情報権限 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- 走破・地図コレクション画面の地図タイル取得（maplibre_gl）、Firestore等に必要 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="kokudo"
         android:name="${applicationName}"
