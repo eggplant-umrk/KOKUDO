@@ -63,6 +63,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # 国道GeoJSON・ルートメタデータ(先行6路線分)
+  assets:
+    - assets/routes/
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
