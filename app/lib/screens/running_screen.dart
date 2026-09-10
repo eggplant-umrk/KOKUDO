@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/route_checkpoint.dart';
 import '../models/run_log.dart';
 import '../theme/app_colors.dart';
+import '../utils/geo_utils.dart';
 import '../utils/pace_utils.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/progress_bar.dart';
@@ -23,11 +25,10 @@ class RunningScreen extends StatefulWidget {
 }
 
 class _RunningScreenState extends State<RunningScreen> with SingleTickerProviderStateMixin {
-  // デモ用の想定ペース（≈5'43"/km）
-  // TODO: 実GPS化（geolocator + Haversine公式）で置き換え予定。
-  static const double _avgSpeedKmph = 10.5;
-  static const double _kmPerSecond = _avgSpeedKmph / 3600;
   static const int _holdToEndMs = 1200;
+  // GPSの測位ノイズによる微小な位置のブレを停止中の移動として
+  // 誤カウントしないための最小移動距離（メートル）。
+  static const double _minMovementMeters = 3.0;
 
   final RouteRepository _repo = RouteRepository.instance;
 
@@ -41,6 +42,10 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
   int _durationSeconds = 0;
   bool _isPaused = false;
   bool _finishing = false;
+
+  Position? _lastPosition;
+  StreamSubscription<Position>? _positionSub;
+  String? _locationError;
 
   Timer? _timer;
   late final AnimationController _holdController;
@@ -75,32 +80,104 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
   @override
   void dispose() {
     _timer?.cancel();
+    _positionSub?.cancel();
     _holdController.dispose();
     super.dispose();
   }
 
-  void _restartTicker() {
+  void _restartDurationTicker() {
     _timer?.cancel();
     if (!_hasStarted || _isPaused) return;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        _durationSeconds += 1;
-        _distanceKm += _kmPerSecond;
-      });
+      setState(() => _durationSeconds += 1);
     });
   }
 
-  void _handleStart() {
+  /// 位置情報サービスの有効化・権限を確認する。
+  /// 問題があれば `_locationError` にメッセージをセットして false を返す。
+  Future<bool> _ensureLocationReady() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        setState(() => _locationError = '位置情報サービスがオフになっています。端末の設定でオンにしてください。');
+      }
+      return false;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        setState(() => _locationError = '位置情報の利用が許可されていません。設定アプリから許可してください。');
+      }
+      return false;
+    }
+
+    if (mounted) {
+      setState(() => _locationError = null);
+    }
+    return true;
+  }
+
+  /// GPSの位置ストリームの購読を開始する。再開時に基準位置をリセットし、
+  /// 一時停止していた間の移動分を距離に含めないようにする。
+  void _startPositionStream() {
+    _positionSub?.cancel();
+    _lastPosition = null;
+    _positionSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      ),
+    ).listen(_handlePosition, onError: (Object error) {
+      if (!mounted) return;
+      setState(() => _locationError = '位置情報の取得に失敗しました: $error');
+    });
+  }
+
+  /// 新しい位置情報を受け取るたびにHaversineの公式で前回位置からの
+  /// 距離を計算し、走行距離に加算する。
+  void _handlePosition(Position position) {
+    final last = _lastPosition;
+    _lastPosition = position;
+    if (last == null) return;
+
+    final distanceMeters = haversineDistanceMeters(
+      last.latitude,
+      last.longitude,
+      position.latitude,
+      position.longitude,
+    );
+    if (distanceMeters < _minMovementMeters) return;
+    if (!mounted) return;
+    setState(() => _distanceKm += distanceMeters / 1000);
+  }
+
+  Future<void> _handleStart() async {
+    final ready = await _ensureLocationReady();
+    if (!ready) return;
     setState(() {
       _hasStarted = true;
       _isPaused = false;
     });
-    _restartTicker();
+    _startPositionStream();
+    _restartDurationTicker();
   }
 
-  void _togglePause() {
-    setState(() => _isPaused = !_isPaused);
-    _restartTicker();
+  Future<void> _togglePause() async {
+    if (_isPaused) {
+      final ready = await _ensureLocationReady();
+      if (!ready) return;
+      setState(() => _isPaused = false);
+      _startPositionStream();
+    } else {
+      setState(() => _isPaused = true);
+      _positionSub?.cancel();
+      _positionSub = null;
+    }
+    _restartDurationTicker();
   }
 
   void _cancelHold() {
@@ -117,6 +194,7 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     _finishing = true;
 
     _timer?.cancel();
+    _positionSub?.cancel();
     final routeId = _routeId;
     final caloriesBurned = (_distanceKm * 62).round();
     final result = RunResult(
@@ -180,6 +258,7 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
         child: Column(
           children: [
             _buildMiniStepBar(route, nextCheckpoint, currentAbsoluteKm, stepRatio),
+            if (_locationError != null) _buildLocationErrorBanner(_locationError!),
             Expanded(child: _buildRunMain()),
             _buildSubstatusGrid(caloriesBurned),
             _buildControls(),
@@ -226,6 +305,31 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
             fillGradient: AppColors.routeSignGradient,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLocationErrorBanner(String message) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.dangerBgOnDark,
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.location_off, color: AppColors.danger, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.danger),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
