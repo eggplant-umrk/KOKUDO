@@ -41,6 +41,7 @@ dependencies:
   cloud_firestore: ^6.9.0
   firebase_auth: ^6.6.1
   geolocator: ^14.0.3
+  sqflite_common_ffi_web: ^1.1.2
 
 dev_dependencies:
   flutter_test:
@@ -63,6 +64,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # 国道GeoJSON・ルートメタデータ(先行6路線分)
+  assets:
+    - assets/routes/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
