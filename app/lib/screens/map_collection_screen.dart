@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart' as mock;
+import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
@@ -23,19 +24,69 @@ const List<({RouteStatus? key, String label})> _statusTabs = [
 ];
 
 class _MapCollectionScreenState extends State<MapCollectionScreen> {
+  final RouteRepository _repo = RouteRepository.instance;
+
   RegionKey? _region;
   RouteStatus? _status;
 
+  bool _loading = true;
+  List<NationalRoute> _routes = const [];
+  Map<String, UserRouteProgress> _progressByRoute = const {};
+  Map<String, RouteStatus> _statusByRoute = const {};
+  int _completedCount = 0;
+  double _cumulativeKm = 0;
+  double _coverage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final routes = await _repo.getRoutes();
+    final progressByRoute = <String, UserRouteProgress>{};
+    final statusByRoute = <String, RouteStatus>{};
+    for (final route in routes) {
+      final progress = await _repo.getProgress(route.routeId);
+      if (progress != null) progressByRoute[route.routeId] = progress;
+      statusByRoute[route.routeId] = await _repo.routeStatusOf(route.routeId);
+    }
+    final completedCount = await _repo.completedRouteCount();
+    final cumulativeKm = await _repo.cumulativeDistanceKm();
+    final coverage = await _repo.coverageRatio();
+
+    if (!mounted) return;
+    setState(() {
+      _routes = routes;
+      _progressByRoute = progressByRoute;
+      _statusByRoute = statusByRoute;
+      _completedCount = completedCount;
+      _cumulativeKm = cumulativeKm;
+      _coverage = coverage;
+      _loading = false;
+    });
+  }
+
+  RouteStatus _statusOf(String routeId) => _statusByRoute[routeId] ?? RouteStatus.notStarted;
+
   List<NationalRoute> get _filteredRoutes {
-    return mock.routes.where((r) {
+    return _routes.where((r) {
       final regionOk = _region == null || r.region == _region;
-      final statusOk = _status == null || mock.routeStatusOf(r.routeId) == _status;
+      final statusOk = _status == null || _statusOf(r.routeId) == _status;
       return regionOk && statusOk;
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return Container(
+        color: AppColors.bgSurface,
+        child: const Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
+      );
+    }
+
     final filtered = _filteredRoutes;
 
     return Container(
@@ -81,7 +132,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
                   Expanded(
                     child: StatTile(
                       label: '制覇路線数',
-                      value: '${mock.completedRouteCount()} / ${mock.nationalRouteCount}',
+                      value: '$_completedCount / ${mock.nationalRouteCount}',
                       valueFontSize: 17,
                       centered: true,
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
@@ -91,7 +142,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
                   Expanded(
                     child: StatTile(
                       label: '累計走行距離',
-                      value: '${mock.cumulativeDistanceKm().toStringAsFixed(1)}km',
+                      value: '${_cumulativeKm.toStringAsFixed(1)}km',
                       valueFontSize: 17,
                       centered: true,
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
@@ -101,7 +152,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
                   Expanded(
                     child: StatTile(
                       label: 'カバー率',
-                      value: '${(mock.coverageRatio() * 100).toStringAsFixed(2)}%',
+                      value: '${(_coverage * 100).toStringAsFixed(2)}%',
                       valueFontSize: 17,
                       centered: true,
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
@@ -125,91 +176,28 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
     );
   }
 
-  /// 実際の地図（簡易日本地図）で地方ごとの位置・状況を確認できるパネル。
-  /// 海に見立てた水色グラデーションの上に、地方ごとの島を配置する（Googleマップ風）。
+  /// MapLibre GLによる実地図で地方ごとの位置・状況を確認できるパネル。
   Widget _buildMapPanel() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppColors.radiusLg),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment(-0.5, -1),
-            end: Alignment(0.5, 1),
-            colors: [AppColors.mapWaterTop, AppColors.mapWaterMid, AppColors.mapWaterBottom],
-          ),
-          border: Border.all(color: AppColors.mapWaterBorder),
-        ),
-        child: Column(
-          children: [
-            Stack(
-              children: [
-                JapanMapPanel(
-                  routes: mock.routes,
-                  activeRegion: _region,
-                  onSelectRegion: (region) => setState(() => _region = region),
-                  statusOf: mock.routeStatusOf,
-                ),
-                // Googleマップ風の装飾チロム（ズームボタン／縮尺）。実際の拡大縮小機能は持たない。
-                Positioned(
-                  right: 0,
-                  bottom: 8,
-                  child: _buildZoomControls(),
-                ),
-                Positioned(
-                  left: 4,
-                  bottom: 6,
-                  child: _buildScaleBar(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            _buildLegend(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildZoomControls() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
       child: DecoratedBox(
-        decoration: const BoxDecoration(
-          boxShadow: [BoxShadow(color: Color(0x47142838), blurRadius: 6)],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _zoomBtn('+', showBorder: true),
-            _zoomBtn('−', showBorder: false),
-          ],
+        decoration: BoxDecoration(border: Border.all(color: AppColors.mapWaterBorder)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Column(
+            children: [
+              JapanMapPanel(
+                routes: _routes,
+                activeRegion: _region,
+                onSelectRegion: (region) => setState(() => _region = region),
+                statusOf: _statusOf,
+              ),
+              const SizedBox(height: 8),
+              _buildLegend(),
+            ],
+          ),
         ),
       ),
-    );
-  }
-
-  Widget _zoomBtn(String label, {required bool showBorder}) {
-    return Container(
-      width: 22,
-      height: 22,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: showBorder ? const Border(bottom: BorderSide(color: Color(0xFFE4E4E4))) : null,
-      ),
-      child: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF444444))),
-    );
-  }
-
-  Widget _buildScaleBar() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(width: 20, height: 2, color: AppColors.mapLabel),
-        const SizedBox(width: 4),
-        const Text('100km', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: AppColors.mapLabel)),
-      ],
     );
   }
 
@@ -238,7 +226,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
       spacing: 14,
       children: [
         dot(AppColors.routeInactive, '未走破'),
-        dot(AppColors.routeSignBlue, '挑戦中'),
+        dot(AppColors.routeNeonBlue, '挑戦中'),
         dot(AppColors.accentGold, '完走'),
       ],
     );
@@ -294,7 +282,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
       separatorBuilder: (context, index) => const SizedBox(height: 7),
       itemBuilder: (context, index) {
         final r = filtered[index];
-        return RouteCard(route: r, progress: mock.getProgress(r.routeId));
+        return RouteCard(route: r, progress: _progressByRoute[r.routeId]);
       },
     );
   }

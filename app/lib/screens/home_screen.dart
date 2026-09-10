@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart' as mock;
+import '../data/route_repository.dart';
+import '../models/national_route.dart';
 import '../models/route_checkpoint.dart';
+import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
 import '../utils/pace_utils.dart';
 import '../widgets/gradient_button.dart';
@@ -18,35 +20,127 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // デモ用: 完走ナビの目標日・週間ペースをこの画面のローカル状態として保持
-  DateTime _targetEndDate = DateTime(2026, 10, 31);
-  int? _runsPerWeekGoal = 3;
-  final double _currentDistanceKm = 42.5;
+  final RouteRepository _repo = RouteRepository.instance;
+
+  bool _loading = true;
+  String? _routeId;
+  NationalRoute? _route;
+  UserRouteProgress? _progress;
+  double _todayKm = 0;
+  double _monthKm = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final routeId = await _repo.getActiveRouteId();
+    final route = await _repo.getRoute(routeId);
+    final progress = await _repo.getProgress(routeId);
+    final today = await _repo.todayTotalDistanceKm();
+    final month = await _repo.monthTotalDistanceKm();
+    if (!mounted) return;
+    setState(() {
+      _routeId = routeId;
+      _route = route;
+      _progress = progress;
+      _todayKm = today;
+      _monthKm = month;
+      _loading = false;
+    });
+  }
+
+  Future<void> _handleChangeTargetEndDate(DateTime value) async {
+    final routeId = _routeId;
+    if (routeId == null) return;
+    setState(() {
+      _progress = _progress == null
+          ? UserRouteProgress(
+              userId: RouteRepository.userId,
+              routeId: routeId,
+              currentDistanceKm: 0,
+              targetEndDate: value,
+              startedAt: DateTime.now(),
+            )
+          : UserRouteProgress(
+              userId: _progress!.userId,
+              routeId: _progress!.routeId,
+              currentDistanceKm: _progress!.currentDistanceKm,
+              targetEndDate: value,
+              runsPerWeekGoal: _progress!.runsPerWeekGoal,
+              isCompleted: _progress!.isCompleted,
+              startedAt: _progress!.startedAt,
+              completedAt: _progress!.completedAt,
+              clearedCheckpoints: _progress!.clearedCheckpoints,
+            );
+    });
+    await _repo.updateGoal(
+      routeId: routeId,
+      targetEndDate: value,
+      runsPerWeekGoal: _progress?.runsPerWeekGoal,
+    );
+  }
+
+  Future<void> _handleChangeRunsPerWeekGoal(int? value) async {
+    final routeId = _routeId;
+    final progress = _progress;
+    if (routeId == null || progress == null) return;
+    setState(() {
+      _progress = UserRouteProgress(
+        userId: progress.userId,
+        routeId: progress.routeId,
+        currentDistanceKm: progress.currentDistanceKm,
+        targetEndDate: progress.targetEndDate,
+        runsPerWeekGoal: value,
+        isCompleted: progress.isCompleted,
+        startedAt: progress.startedAt,
+        completedAt: progress.completedAt,
+        clearedCheckpoints: progress.clearedCheckpoints,
+      );
+    });
+    await _repo.updateGoal(
+      routeId: routeId,
+      targetEndDate: progress.targetEndDate,
+      runsPerWeekGoal: value,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final route = mock.getRoute(mock.activeRouteId)!;
+    if (_loading || _route == null) {
+      return Container(
+        color: AppColors.bgSurface,
+        child: const Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
+      );
+    }
+
+    final route = _route!;
+    final currentDistanceKm = _progress?.currentDistanceKm ?? 0;
+    final targetEndDate = _progress?.targetEndDate ?? DateTime.now().add(const Duration(days: 90));
+    final runsPerWeekGoal = _progress?.runsPerWeekGoal;
 
     RouteCheckpoint? nextCheckpoint;
     for (final c in route.checkpoints) {
-      if (c.distanceKmFromStart > _currentDistanceKm) {
+      if (c.distanceKmFromStart > currentDistanceKm) {
         nextCheckpoint = c;
         break;
       }
     }
     RouteCheckpoint? lastCheckpoint;
     for (final c in route.checkpoints.reversed) {
-      if (c.distanceKmFromStart <= _currentDistanceKm) {
+      if (c.distanceKmFromStart <= currentDistanceKm) {
         lastCheckpoint = c;
         break;
       }
     }
 
     final passedLandmark = lastCheckpoint != null
-        ? '${_currentDistanceKm.toStringAsFixed(1)}km地点｜${lastCheckpoint.name}'
-        : '${_currentDistanceKm.toStringAsFixed(1)}km地点';
+        ? '${currentDistanceKm.toStringAsFixed(1)}km地点｜${lastCheckpoint.name}'
+        : '${currentDistanceKm.toStringAsFixed(1)}km地点';
     final nextCheckpointLabel = nextCheckpoint != null
-        ? '${nextCheckpoint.name}まであと ${(nextCheckpoint.distanceKmFromStart - _currentDistanceKm).toStringAsFixed(1)}km'
+        ? '${nextCheckpoint.name}まであと ${(nextCheckpoint.distanceKmFromStart - currentDistanceKm).toStringAsFixed(1)}km'
         : 'まもなくゴール！';
 
     return Container(
@@ -56,11 +150,11 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: HeroStage(
               route: route,
-              currentDistanceKm: _currentDistanceKm,
-              targetEndDate: _targetEndDate,
-              runsPerWeekGoal: _runsPerWeekGoal,
-              onChangeTargetEndDate: (v) => setState(() => _targetEndDate = v),
-              onChangeRunsPerWeekGoal: (v) => setState(() => _runsPerWeekGoal = v),
+              currentDistanceKm: currentDistanceKm,
+              targetEndDate: targetEndDate,
+              runsPerWeekGoal: runsPerWeekGoal,
+              onChangeTargetEndDate: _handleChangeTargetEndDate,
+              onChangeRunsPerWeekGoal: _handleChangeRunsPerWeekGoal,
               passedLandmark: passedLandmark,
               nextCheckpointLabel: nextCheckpointLabel,
             ),
@@ -76,14 +170,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: StatTile(
                           label: '本日の走行距離',
-                          value: formatKm(mock.todayTotalDistanceKm(), digits: 2),
+                          value: formatKm(_todayKm, digits: 2),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: StatTile(
                           label: '今月の総走行距離',
-                          value: formatKm(mock.monthTotalDistanceKm()),
+                          value: formatKm(_monthKm),
                         ),
                       ),
                     ],
