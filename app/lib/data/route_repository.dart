@@ -111,6 +111,9 @@ class RouteRepository {
     return rows.map(UserRouteProgress.fromMap).toList();
   }
 
+  /// Firestore同期用に、ユーザーの全進捗レコードを取得する（[_allProgress]の公開版）。
+  Future<List<UserRouteProgress>> getAllProgress() => _allProgress();
+
   Future<void> saveProgress(UserRouteProgress progress) async {
     final db = await _db;
     await db.insert(
@@ -123,6 +126,18 @@ class RouteRepository {
   Future<void> addRunLog(RunLog log) async {
     final db = await _db;
     await db.insert('run_logs', log.toMap());
+  }
+
+  /// Firestoreからのプル同期用: 同じlog_idが既に存在する場合は上書きする
+  /// （[addRunLog]と異なりConflictAlgorithm.replaceを使うため、再同期時に
+  /// 重複エラーにならない）。
+  Future<void> upsertRunLog(RunLog log) async {
+    final db = await _db;
+    await db.insert(
+      'run_logs',
+      log.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<RunLog>> getRunLogs() async {

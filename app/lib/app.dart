@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'data/auth_repository.dart';
+import 'data/firestore_sync_repository.dart';
 import 'models/run_log.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
@@ -78,8 +79,20 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   _ScreenKey _screen = _ScreenKey.home;
   RunResult? _lastResult;
+  bool _syncing = false;
 
   void _goTo(_ScreenKey key) => setState(() => _screen = key);
+
+  /// 開発中のFirestore同期動作確認用（実プロダクトのUIには含まれない）。
+  Future<void> _handleSyncNow() async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
+    try {
+      await FirestoreSyncRepository.instance.syncNow();
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +107,8 @@ class _RootShellState extends State<RootShell> {
               child: Row(
                 children: [
                   Expanded(child: _buildDevNav()),
+                  const SizedBox(width: 6),
+                  _buildSyncButton(),
                   const SizedBox(width: 6),
                   _buildSignOutButton(),
                 ],
@@ -150,6 +165,30 @@ class _RootShellState extends State<RootShell> {
           ),
         );
       }).toList(),
+    );
+  }
+
+  /// 開発中のFirestore同期動作確認用ボタン（dev-nav同様、実プロダクトのUIには含まれない）。
+  Widget _buildSyncButton() {
+    return GestureDetector(
+      onTap: _handleSyncNow,
+      child: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: AppColors.borderSubtle),
+          borderRadius: BorderRadius.circular(AppColors.radiusSm),
+        ),
+        child: _syncing
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textSecondary),
+              )
+            : const Icon(Icons.sync, size: 16, color: AppColors.textSecondary),
+      ),
     );
   }
 

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/auth_repository.dart';
+import '../data/firestore_sync_repository.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 
@@ -25,10 +28,14 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
     try {
-      await _auth.signInWithGoogle();
+      final credential = await _auth.signInWithGoogle();
       // サインインに成功すると、AuthGateがauthStateChangesを検知して
       // 自動的にメイン画面へ遷移する。キャンセル時はnullが返るのでここで
       // ローディングを解除するだけでよい。
+      if (credential != null) {
+        // 画面遷移をブロックしないよう、同期は待たずにバックグラウンドで実行する。
+        unawaited(FirestoreSyncRepository.instance.syncNow());
+      }
       if (mounted) setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
