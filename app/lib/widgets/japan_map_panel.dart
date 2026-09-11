@@ -1,101 +1,17 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../models/national_route.dart';
 import '../models/user_route_progress.dart';
-import '../theme/app_colors.dart';
 
-/// 走破・地図コレクション画面用の簡易日本地図。
-/// 8地方を丸みのあるブロブで表現し、各国道を地方の位置にピン表示する。
-/// ブロブをタップすると、その地方でルート一覧を絞り込める（地方タブの代わり）。
-class _RegionBlob {
-  final RegionKey key;
-  final String label;
-  final double cx;
-  final double cy;
-  final double rx;
-  final double ry;
-  final int seed;
-
-  const _RegionBlob(this.key, this.label, this.cx, this.cy, this.rx, this.ry, this.seed);
-}
-
-const List<_RegionBlob> _blobs = [
-  _RegionBlob(RegionKey.hokkaido, '北海道', 176, 28, 26, 21, 3),
-  _RegionBlob(RegionKey.tohoku, '東北', 151, 76, 21, 27, 11),
-  _RegionBlob(RegionKey.kanto, '関東', 148, 126, 19, 17, 7),
-  _RegionBlob(RegionKey.chubu, '中部', 109, 116, 23, 21, 19),
-  _RegionBlob(RegionKey.kinki, '近畿', 81, 153, 17, 15, 5),
-  _RegionBlob(RegionKey.chugoku, '中国', 49, 165, 19, 12, 23),
-  _RegionBlob(RegionKey.shikoku, '四国', 67, 186, 14, 10, 13),
-  _RegionBlob(RegionKey.kyushuOkinawa, '九州・沖縄', 33, 205, 19, 17, 29),
-];
-
-const Map<String, Offset> _markerOffset = {
-  '174': Offset(11, 9),
-  '130': Offset(-10, -9),
-  '134': Offset(10, -3),
-  '1': Offset(-2, 11),
-  '292': Offset(-5, -10),
-  '4': Offset(2, -7),
-};
-
-const Map<RouteStatus, Color> _statusFill = {
-  RouteStatus.notStarted: AppColors.routeInactive,
-  RouteStatus.inProgress: AppColors.routeSignBlue,
-  RouteStatus.completed: AppColors.accentGold,
-};
-
-// 元のSVG viewBox="-14 -10 228 256" と同じ仮想座標系を使う。
-const double _vbX = -14;
-const double _vbY = -10;
-const double _vbW = 228;
-const double _vbH = 256;
-
-/// 地方の位置を、単純な楕円ではなく少し有機的な「島」っぽい輪郭で描くための
-/// ブロブ形状パス生成。seed値ごとに決まった形になる（毎回同じ形で安定表示）。
-Path _blobPath(double cx, double cy, double rx, double ry, int seed) {
-  const pointCount = 10;
-  final angleStep = (2 * math.pi) / pointCount;
-  int s = seed;
-  double rand() {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  }
-
-  final pts = <Offset>[];
-  for (var i = 0; i < pointCount; i++) {
-    final angle = i * angleStep;
-    final variance = 0.86 + rand() * 0.28; // 0.86〜1.14
-    pts.add(Offset(cx + math.cos(angle) * rx * variance, cy + math.sin(angle) * ry * variance));
-  }
-
-  Offset mid(Offset a, Offset b) => Offset((a.dx + b.dx) / 2, (a.dy + b.dy) / 2);
-
-  final path = Path();
-  final start = mid(pts.last, pts.first);
-  path.moveTo(start.dx, start.dy);
-  for (var i = 0; i < pts.length; i++) {
-    final next = pts[(i + 1) % pts.length];
-    final m = mid(pts[i], next);
-    path.quadraticBezierTo(pts[i].dx, pts[i].dy, m.dx, m.dy);
-  }
-  path.close();
-  return path;
-}
-
-/// Googleマップ風のしずく型ピン。先端（tipX, tipY）が実際の地点を指す。
-Path _pinPath(double tipX, double tipY, double r) {
-  final topY = tipY - r * 2.6;
-  final path = Path();
-  path.moveTo(tipX, tipY);
-  path.cubicTo(tipX - r, tipY - r * 1.3, tipX - r, tipY - r * 2.2, tipX, topY);
-  path.cubicTo(tipX + r, tipY - r * 2.2, tipX + r, tipY - r * 1.3, tipX, tipY);
-  path.close();
-  return path;
-}
-
+/// 走破・地図コレクション画面用の実地図パネル（MapLibre GL）。
+///
+/// 各国道の起点にステータス別の色分けマーカー（未走破=グレー、
+/// 挑戦中=ネオンブルー、完走=ゴールド）を表示する。マーカーをタップすると
+/// その路線が属する地方でフィルターできる（もう一度タップで解除）。
+///
+/// また、路線が1本もない地方でもフィルターを選べるよう、8地方それぞれの
+/// 代表地点に常時タップ可能な地方マーカー（ラベル付き）を別途表示する。
 class JapanMapPanel extends StatefulWidget {
   final List<NationalRoute> routes;
   final RegionKey? activeRegion; // nullは「すべて」
@@ -114,195 +30,175 @@ class JapanMapPanel extends StatefulWidget {
   State<JapanMapPanel> createState() => _JapanMapPanelState();
 }
 
-class _JapanMapPanelState extends State<JapanMapPanel> with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
+/// ネオンブルー（挑戦中）はブランドの標識ブルーより彩度を上げた色を使う。
+const Map<RouteStatus, String> _statusHexColor = {
+  RouteStatus.notStarted: '#CFDBE2',
+  RouteStatus.inProgress: '#2FA9FF',
+  RouteStatus.completed: '#FFB238',
+};
+
+/// 8地方それぞれの代表地点（おおよその中心座標）。
+/// 路線マーカーが無い地方でも、ここに常時タップ可能なマーカーを表示することで
+/// 地方フィルターを選べるようにする。
+const Map<RegionKey, LatLng> _regionCenters = {
+  RegionKey.hokkaido: LatLng(43.5, 142.6),
+  RegionKey.tohoku: LatLng(39.0, 140.9),
+  RegionKey.kanto: LatLng(36.1, 139.8),
+  RegionKey.chubu: LatLng(36.5, 137.9),
+  RegionKey.kinki: LatLng(34.8, 135.6),
+  RegionKey.chugoku: LatLng(34.5, 132.8),
+  RegionKey.shikoku: LatLng(33.8, 133.5),
+  RegionKey.kyushuOkinawa: LatLng(32.6, 130.7),
+};
+
+const Map<RegionKey, String> _regionShortLabel = {
+  RegionKey.hokkaido: '北海道',
+  RegionKey.tohoku: '東北',
+  RegionKey.kanto: '関東',
+  RegionKey.chubu: '中部',
+  RegionKey.kinki: '近畿',
+  RegionKey.chugoku: '中国',
+  RegionKey.shikoku: '四国',
+  RegionKey.kyushuOkinawa: '九州',
+};
+
+class _JapanMapPanelState extends State<JapanMapPanel> {
+  MapLibreMapController? _controller;
+  final Map<String, Circle> _circleByRouteId = {};
+  final Map<RegionKey, Circle> _circleByRegion = {};
+  final Map<RegionKey, Symbol> _labelByRegion = {};
+
+  static const CameraPosition _initialCamera = CameraPosition(
+    target: LatLng(36.5, 138.2),
+    zoom: 3.9,
+  );
 
   @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..repeat();
+  void didUpdateWidget(covariant JapanMapPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controller != null &&
+        (oldWidget.routes != widget.routes ||
+            oldWidget.activeRegion != widget.activeRegion)) {
+      _syncMarkers();
+    }
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    final controller = _controller;
+    controller?.onCircleTapped.remove(_handleCircleTapped);
+    controller?.onSymbolTapped.remove(_handleSymbolTapped);
     super.dispose();
   }
 
-  void _handleTap(TapUpDetails details, Size size) {
-    final scaleX = size.width / _vbW;
-    final scaleY = size.height / _vbH;
-    final p = Offset(
-      details.localPosition.dx / scaleX + _vbX,
-      details.localPosition.dy / scaleY + _vbY,
-    );
-    for (final b in _blobs) {
-      final path = _blobPath(b.cx, b.cy, b.rx, b.ry, b.seed);
-      if (path.contains(p)) {
-        widget.onSelectRegion(widget.activeRegion == b.key ? null : b.key);
-        return;
-      }
+  void _onMapCreated(MapLibreMapController controller) {
+    _controller = controller;
+    controller.onCircleTapped.add(_handleCircleTapped);
+    controller.onSymbolTapped.add(_handleSymbolTapped);
+  }
+
+  Future<void> _onStyleLoaded() async {
+    await _syncMarkers();
+  }
+
+  void _handleCircleTapped(Circle circle) {
+    final regionName = circle.data?['region'] as String?;
+    if (regionName == null) return;
+    final region = RegionKey.values.byName(regionName);
+    widget.onSelectRegion(widget.activeRegion == region ? null : region);
+  }
+
+  void _handleSymbolTapped(Symbol symbol) {
+    final regionName = symbol.data?['region'] as String?;
+    if (regionName == null) return;
+    final region = RegionKey.values.byName(regionName);
+    widget.onSelectRegion(widget.activeRegion == region ? null : region);
+  }
+
+  /// 現在の路線リスト・ステータス・選択中の地方に合わせてマーカーを描き直す。
+  Future<void> _syncMarkers() async {
+    final controller = _controller;
+    if (controller == null) return;
+
+    if (_circleByRouteId.isNotEmpty) {
+      await controller.removeCircles(_circleByRouteId.values);
+      _circleByRouteId.clear();
+    }
+    if (_circleByRegion.isNotEmpty) {
+      await controller.removeCircles(_circleByRegion.values);
+      _circleByRegion.clear();
+    }
+    if (_labelByRegion.isNotEmpty) {
+      await controller.removeSymbols(_labelByRegion.values);
+      _labelByRegion.clear();
+    }
+
+    // 先に8地方の常時タップ可能なマーカー（路線が無くても選択できる）を描く。
+    for (final entry in _regionCenters.entries) {
+      final region = entry.key;
+      final selected = widget.activeRegion == region;
+      final circle = await controller.addCircle(
+        CircleOptions(
+          geometry: entry.value,
+          circleColor: selected ? '#2FA9FF' : '#B9C6CE',
+          circleRadius: selected ? 15 : 12,
+          circleOpacity: selected ? 0.55 : 0.35,
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: 1.2,
+        ),
+        {'region': region.name},
+      );
+      _circleByRegion[region] = circle;
+
+      final symbol = await controller.addSymbol(
+        SymbolOptions(
+          geometry: entry.value,
+          textField: _regionShortLabel[region],
+          textSize: 10,
+          textColor: '#3C4043',
+          textHaloColor: '#FFFFFF',
+          textHaloWidth: 1.2,
+          textOffset: const Offset(0, 0),
+        ),
+        {'region': region.name},
+      );
+      _labelByRegion[region] = symbol;
+    }
+
+    // その上に、実際の路線の起点マーカー（ステータス別に色分け）を重ねて描く。
+    for (final route in widget.routes) {
+      final status = widget.statusOf(route.routeId);
+      final selected = widget.activeRegion == route.region;
+      final circle = await controller.addCircle(
+        CircleOptions(
+          geometry: LatLng(route.startPoint.lat, route.startPoint.lng),
+          circleColor: _statusHexColor[status],
+          circleRadius: selected ? 9 : 7,
+          circleStrokeColor: '#FFFFFF',
+          circleStrokeWidth: selected ? 2.5 : 1.5,
+          circleOpacity: 0.95,
+        ),
+        {'routeId': route.routeId, 'region': route.region.name},
+      );
+      _circleByRouteId[route.routeId] = circle;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = Size(constraints.maxWidth, 178);
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapUp: (details) => _handleTap(details, size),
-          child: SizedBox(
-            width: size.width,
-            height: size.height,
-            child: AnimatedBuilder(
-              animation: _pulseController,
-              builder: (context, _) {
-                return CustomPaint(
-                  size: size,
-                  painter: _JapanMapPainter(
-                    routes: widget.routes,
-                    activeRegion: widget.activeRegion,
-                    statusOf: widget.statusOf,
-                    pulseT: _pulseController.value,
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      },
+    return SizedBox(
+      height: 220,
+      // MapLibreデモサーバーの汎用スタイルを使用。
+      // TODO: 自前のスタイル/タイルサーバーを用意する場合はここを差し替える。
+      child: MapLibreMap(
+        styleString: 'https://demotiles.maplibre.org/style.json',
+        initialCameraPosition: _initialCamera,
+        onMapCreated: _onMapCreated,
+        onStyleLoadedCallback: _onStyleLoaded,
+        myLocationEnabled: false,
+        compassEnabled: false,
+        attributionButtonPosition: AttributionButtonPosition.bottomLeft,
+      ),
     );
-  }
-}
-
-class _JapanMapPainter extends CustomPainter {
-  final List<NationalRoute> routes;
-  final RegionKey? activeRegion;
-  final RouteStatus Function(String routeId) statusOf;
-  final double pulseT;
-
-  _JapanMapPainter({
-    required this.routes,
-    required this.activeRegion,
-    required this.statusOf,
-    required this.pulseT,
-  });
-
-  _RegionBlob? _blobFor(RegionKey key) {
-    for (final b in _blobs) {
-      if (b.key == key) return b;
-    }
-    return null;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scaleX = size.width / _vbW;
-    final scaleY = size.height / _vbH;
-    canvas.save();
-    canvas.scale(scaleX, scaleY);
-    canvas.translate(-_vbX, -_vbY);
-
-    // 地方ブロブ（陸地）
-    for (final b in _blobs) {
-      final selected = activeRegion == b.key;
-      final path = _blobPath(b.cx, b.cy, b.rx, b.ry, b.seed);
-
-      canvas.drawPath(
-        path,
-        Paint()
-          ..style = PaintingStyle.fill
-          ..color = selected ? AppColors.routeSignBlue.withValues(alpha: 0.22) : AppColors.mapLand,
-      );
-      canvas.drawPath(
-        path,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = selected ? 2 : 1.4
-          ..color = selected ? AppColors.routeSignBlue : AppColors.mapLandBorder,
-      );
-
-      final label = b.label == '九州・沖縄' ? '九州' : b.label;
-      final fillColor = selected ? AppColors.routeSignBlue : AppColors.mapLabel;
-
-      // クリーム色のハロー（縁取り）を先に描いてから本体を重ねる（Googleマップ風の可読性向上）
-      final haloPainter = TextPainter(
-        text: TextSpan(
-          text: label,
-          style: TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w800,
-            foreground: Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 2.6
-              ..strokeJoin = StrokeJoin.round
-              ..color = AppColors.mapLand,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      haloPainter.paint(canvas, Offset(b.cx - haloPainter.width / 2, b.cy + 3.5 - haloPainter.height / 2));
-
-      final labelPainter = TextPainter(
-        text: TextSpan(
-          text: label,
-          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: fillColor),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      labelPainter.paint(canvas, Offset(b.cx - labelPainter.width / 2, b.cy + 3.5 - labelPainter.height / 2));
-    }
-
-    // ルートのピンマーカー
-    for (final r in routes) {
-      final blob = _blobFor(r.region);
-      if (blob == null) continue;
-      final offset = _markerOffset[r.routeId] ?? Offset.zero;
-      final status = statusOf(r.routeId);
-      final cx = blob.cx + offset.dx;
-      final cy = blob.cy + offset.dy;
-      final pinR = status == RouteStatus.inProgress ? 4.6 : 3.9;
-
-      if (status == RouteStatus.inProgress) {
-        final pulseOpacity = (0.4 * (1 - pulseT)).clamp(0.0, 1.0).toDouble();
-        final pulseRadius = 5 + (5 * 1.3) * pulseT; // scale(1) → scale(2.3) 相当
-        canvas.drawCircle(
-          Offset(cx, cy),
-          pulseRadius,
-          Paint()..color = AppColors.routeSignBlue.withValues(alpha: pulseOpacity),
-        );
-      }
-
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx, cy + 1), width: pinR * 1.4, height: pinR * 0.48),
-        Paint()..color = const Color(0x47141E1E),
-      );
-
-      final pinPath = _pinPath(cx, cy, pinR);
-      canvas.drawPath(pinPath, Paint()..color = _statusFill[status]!);
-      canvas.drawPath(
-        pinPath,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = Colors.white,
-      );
-
-      canvas.drawCircle(Offset(cx, cy - pinR * 1.55), pinR * 0.4, Paint()..color = Colors.white);
-    }
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _JapanMapPainter oldDelegate) {
-    return oldDelegate.activeRegion != activeRegion ||
-        oldDelegate.pulseT != pulseT ||
-        oldDelegate.routes != routes;
   }
 }

@@ -176,91 +176,28 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
     );
   }
 
-  /// 実際の地図（簡易日本地図）で地方ごとの位置・状況を確認できるパネル。
-  /// 海に見立てた水色グラデーションの上に、地方ごとの島を配置する（Googleマップ風）。
+  /// MapLibre GLによる実地図で地方ごとの位置・状況を確認できるパネル。
   Widget _buildMapPanel() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppColors.radiusLg),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment(-0.5, -1),
-            end: Alignment(0.5, 1),
-            colors: [AppColors.mapWaterTop, AppColors.mapWaterMid, AppColors.mapWaterBottom],
-          ),
-          border: Border.all(color: AppColors.mapWaterBorder),
-        ),
-        child: Column(
-          children: [
-            Stack(
-              children: [
-                JapanMapPanel(
-                  routes: _routes,
-                  activeRegion: _region,
-                  onSelectRegion: (region) => setState(() => _region = region),
-                  statusOf: _statusOf,
-                ),
-                // Googleマップ風の装飾チロム（ズームボタン／縮尺）。実際の拡大縮小機能は持たない。
-                Positioned(
-                  right: 0,
-                  bottom: 8,
-                  child: _buildZoomControls(),
-                ),
-                Positioned(
-                  left: 4,
-                  bottom: 6,
-                  child: _buildScaleBar(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            _buildLegend(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildZoomControls() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
       child: DecoratedBox(
-        decoration: const BoxDecoration(
-          boxShadow: [BoxShadow(color: Color(0x47142838), blurRadius: 6)],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _zoomBtn('+', showBorder: true),
-            _zoomBtn('−', showBorder: false),
-          ],
+        decoration: BoxDecoration(border: Border.all(color: AppColors.mapWaterBorder)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Column(
+            children: [
+              JapanMapPanel(
+                routes: _routes,
+                activeRegion: _region,
+                onSelectRegion: (region) => setState(() => _region = region),
+                statusOf: _statusOf,
+              ),
+              const SizedBox(height: 8),
+              _buildLegend(),
+            ],
+          ),
         ),
       ),
-    );
-  }
-
-  Widget _zoomBtn(String label, {required bool showBorder}) {
-    return Container(
-      width: 22,
-      height: 22,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: showBorder ? const Border(bottom: BorderSide(color: Color(0xFFE4E4E4))) : null,
-      ),
-      child: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF444444))),
-    );
-  }
-
-  Widget _buildScaleBar() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(width: 20, height: 2, color: AppColors.mapLabel),
-        const SizedBox(width: 4),
-        const Text('100km', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: AppColors.mapLabel)),
-      ],
     );
   }
 
@@ -289,7 +226,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
       spacing: 14,
       children: [
         dot(AppColors.routeInactive, '未走破'),
-        dot(AppColors.routeSignBlue, '挑戦中'),
+        dot(AppColors.routeNeonBlue, '挑戦中'),
         dot(AppColors.accentGold, '完走'),
       ],
     );
