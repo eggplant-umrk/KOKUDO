@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -17,6 +18,15 @@ class AppDatabase {
 
   Future<Database> get database async {
     return _db ??= await _open();
+  }
+
+  @visibleForTesting
+  Future<void> resetForTesting() async {
+    final db = _db;
+    _db = null;
+    if (db != null) {
+      await db.close();
+    }
   }
 
   Future<Database> _open() async {

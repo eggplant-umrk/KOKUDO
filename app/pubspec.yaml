@@ -43,6 +43,9 @@ dependencies:
   geolocator: ^14.0.3
   maplibre_gl: ^0.27.0
   google_sign_in: ^7.2.0
+  # auth_repository.dart で @visibleForTesting を使うために直接依存として明記
+  # (Flutter SDK経由の間接依存のままだと flutter analyze がinfoを出すため)
+  meta: ^1.16.0
 
 dev_dependencies:
   flutter_test:
@@ -54,6 +57,14 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+  # widget_test.dart でAuthGate(Firebase Authentication)を実際のFirebaseに
+  # 接続せずにテストするためのモック。firebase_auth ^6.x に対応。
+  firebase_auth_mocks: ^0.15.2
+
+  # widget_test.dart用: flutter test のVM環境にはsqfliteのプラットフォーム
+  # チャンネル実装が無いため、FFI版のSQLite実装に差し替えてテストを通す。
+  sqflite_common_ffi: ^2.4.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

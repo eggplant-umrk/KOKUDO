@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/national_route.dart';
@@ -28,6 +29,11 @@ class RouteRepository {
   /// 複数箇所から同時に呼ばれても二重シードされないよう、Futureをキャッシュする。
   Future<void> ensureSeeded() {
     return _seedFuture ??= _seed();
+  }
+
+  @visibleForTesting
+  void resetSeedCacheForTesting() {
+    _seedFuture = null;
   }
 
   Future<void> _seed() async {
