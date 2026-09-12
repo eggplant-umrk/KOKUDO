@@ -1,17 +1,25 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:meta/meta.dart';
 
 /// Firebase Authenticationのラッパー。
 ///
 /// 現段階ではGoogleログインの導線のみを実装する（先行準備タスク）。
 /// Firestoreとの同期処理は別タスクで対応予定。
 class AuthRepository {
-  AuthRepository._();
+  AuthRepository._({FirebaseAuth? auth, GoogleSignIn? googleSignIn})
+      : _auth = auth ?? FirebaseAuth.instance,
+        _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
 
-  static final AuthRepository instance = AuthRepository._();
+  static AuthRepository instance = AuthRepository._();
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
+  @visibleForTesting
+  factory AuthRepository.forTesting({FirebaseAuth? auth, GoogleSignIn? googleSignIn}) {
+    return AuthRepository._(auth: auth, googleSignIn: googleSignIn);
+  }
+
+  final FirebaseAuth _auth;
+  final GoogleSignIn _googleSignIn;
   bool _googleSignInInitialized = false;
 
   User? get currentUser => _auth.currentUser;
