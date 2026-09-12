@@ -12,7 +12,8 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _dbName = 'kokudo.db';
-  static const _dbVersion = 1;
+  // v2: user_route_progress に updated_at を追加(Firestore同期のマージ判定用)。
+  static const _dbVersion = 2;
 
   Database? _db;
 
@@ -27,6 +28,16 @@ class AppDatabase {
     if (db != null) {
       await db.close();
     }
+    // DBファイルそのものも削除する。close()だけでは前回のテスト実行で
+    // 追加された列など、オンディスク上の実際のスキーマ変更は残ったままに
+    // なる。その状態でプロセスが終わらず(または次のテストで)
+    // openDatabase(version: _dbVersion)が再度呼ばれると、onUpgradeが
+    // 「既に存在する列をもう一度追加しよう」として
+    // duplicate column nameで失敗することがあったため
+    // （PR #14でupdated_at列を追加した際に発覚）。
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _dbName);
+    await databaseFactory.deleteDatabase(path);
   }
 
   Future<Database> _open() async {
@@ -38,6 +49,16 @@ class AppDatabase {
       onCreate: (db, version) async {
         for (final statement in _createTableStatements) {
           await db.execute(statement);
+        }
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            "ALTER TABLE user_route_progress ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+          );
+          await db.execute(
+            "UPDATE user_route_progress SET updated_at = started_at WHERE updated_at = ''",
+          );
         }
       },
     );
@@ -88,6 +109,7 @@ class AppDatabase {
       started_at TEXT NOT NULL,
       completed_at TEXT,
       cleared_checkpoints TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (user_id, route_id)
     )
     ''',

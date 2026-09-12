@@ -26,6 +26,10 @@ class FirestoreSyncRepository {
 
   /// ログイン中のユーザーについて、ローカル⇔クラウドの同期を1回実行する。
   /// 未ログイン時、または既に同期処理が進行中の場合は何もしない。
+  ///
+  /// オフライン時やFirestoreエラー時は、失敗を握りつぶして次回の同期に委ねる
+  /// （PR #14レビュー指摘対応）。呼び出し元（UIの手動同期ボタンなど）を
+  /// 例外で落とさないようにするため。
   Future<void> syncNow() async {
     final uid = AuthRepository.instance.currentUser?.uid;
     if (uid == null || _syncing) return;
@@ -34,6 +38,9 @@ class FirestoreSyncRepository {
     try {
       await _pushLocalToCloud(uid);
       await _pullCloudToLocal(uid);
+    } catch (_) {
+      // オフライン・権限エラーなどで失敗しても、ここでは何もしない。
+      // 次回のsyncNow()呼び出しで再試行される。
     } finally {
       _syncing = false;
     }
@@ -45,16 +52,38 @@ class FirestoreSyncRepository {
   CollectionReference<Map<String, dynamic>> _runLogsCollection(String uid) =>
       _firestore.collection('users').doc(uid).collection('runLogs');
 
-  /// ローカルSQLiteの内容を、そのままFirestoreへ書き込む（後勝ちでよい前提）。
+  /// ローカルSQLiteの内容をFirestoreへ書き込む。
+  ///
+  /// 複数端末で同期せずに使われた場合、単純に上書きすると後から同期した方が
+  /// 先に同期された新しい進捗を消してしまう可能性がある（PR #14レビュー指摘）。
+  /// そのため、クラウド側に既存のドキュメントがある場合はupdated_atを比較し、
+  /// ローカルの方が新しい（またはクラウド側にまだ無い）場合のみ上書きする。
+  /// run_logsは追記のみで更新されないレコードのため、従来どおり無条件でpushする。
   Future<void> _pushLocalToCloud(String uid) async {
     final progressList = await _routeRepository.getAllProgress();
     final runLogs = await _routeRepository.getRunLogs();
     if (progressList.isEmpty && runLogs.isEmpty) return;
 
     final batch = _firestore.batch();
+
     for (final progress in progressList) {
-      batch.set(_progressCollection(uid).doc(progress.routeId), progress.toMap());
+      final docRef = _progressCollection(uid).doc(progress.routeId);
+      final existing = await docRef.get();
+      if (existing.exists) {
+        final existingUpdatedAtRaw = existing.data()?['updated_at'] as String?;
+        final existingUpdatedAt =
+            (existingUpdatedAtRaw != null && existingUpdatedAtRaw.isNotEmpty)
+                ? DateTime.tryParse(existingUpdatedAtRaw)
+                : null;
+        if (existingUpdatedAt != null && existingUpdatedAt.isAfter(progress.updatedAt)) {
+          // クラウド側の方が新しいので、このレコードはpushしない
+          // （このあとの_pullCloudToLocalでローカルに取り込まれる）。
+          continue;
+        }
+      }
+      batch.set(docRef, progress.toMap());
     }
+
     for (final log in runLogs) {
       batch.set(_runLogsCollection(uid).doc(log.logId), log.toMap());
     }

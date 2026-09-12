@@ -243,6 +243,7 @@ class RouteRepository {
       startedAt: existing?.startedAt ?? DateTime.now(),
       completedAt: isCompleted ? DateTime.now() : existing?.completedAt,
       clearedCheckpoints: existing?.clearedCheckpoints ?? const [],
+      updatedAt: DateTime.now(),
     ));
   }
 
@@ -263,6 +264,7 @@ class RouteRepository {
       startedAt: existing?.startedAt ?? DateTime.now(),
       completedAt: existing?.completedAt,
       clearedCheckpoints: existing?.clearedCheckpoints ?? const [],
+      updatedAt: DateTime.now(),
     ));
   }
 }

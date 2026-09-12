@@ -63,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
               currentDistanceKm: 0,
               targetEndDate: value,
               startedAt: DateTime.now(),
+              updatedAt: DateTime.now(),
             )
           : UserRouteProgress(
               userId: _progress!.userId,
@@ -74,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
               startedAt: _progress!.startedAt,
               completedAt: _progress!.completedAt,
               clearedCheckpoints: _progress!.clearedCheckpoints,
+              updatedAt: DateTime.now(),
             );
     });
     await _repo.updateGoal(
@@ -98,6 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
         startedAt: progress.startedAt,
         completedAt: progress.completedAt,
         clearedCheckpoints: progress.clearedCheckpoints,
+        updatedAt: DateTime.now(),
       );
     });
     await _repo.updateGoal(

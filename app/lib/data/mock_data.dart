@@ -278,6 +278,7 @@ final List<UserRouteProgress> userProgress = [
     startedAt: DateTime.utc(2026, 8, 18, 8, 0, 0),
     completedAt: DateTime.utc(2026, 8, 18, 8, 5, 0),
     clearedCheckpoints: const ['神戸市中央区'],
+    updatedAt: DateTime.now(),
   ),
   UserRouteProgress(
     userId: _userId,
@@ -289,6 +290,7 @@ final List<UserRouteProgress> userProgress = [
     startedAt: DateTime.utc(2026, 8, 19, 8, 0, 0),
     completedAt: DateTime.utc(2026, 8, 19, 8, 4, 0),
     clearedCheckpoints: const ['港区芝'],
+    updatedAt: DateTime.now(),
   ),
   UserRouteProgress(
     // まだ着手していない路線として保持（0km = 未挑戦扱い）
@@ -301,6 +303,7 @@ final List<UserRouteProgress> userProgress = [
     startedAt: DateTime.utc(2026, 8, 20, 8, 0, 0),
     completedAt: null,
     clearedCheckpoints: const [],
+    updatedAt: DateTime.now(),
   ),
   UserRouteProgress(
     // 現在挑戦中のメインチャレンジ（ホーム画面で表示）
@@ -313,6 +316,7 @@ final List<UserRouteProgress> userProgress = [
     startedAt: DateTime.utc(2026, 8, 1, 8, 0, 0),
     completedAt: null,
     clearedCheckpoints: const ['品川宿'],
+    updatedAt: DateTime.now(),
   ),
   UserRouteProgress(
     userId: _userId,
@@ -324,6 +328,7 @@ final List<UserRouteProgress> userProgress = [
     startedAt: DateTime.utc(2026, 8, 25, 8, 0, 0),
     completedAt: null,
     clearedCheckpoints: const [],
+    updatedAt: DateTime.now(),
   ),
   UserRouteProgress(
     userId: _userId,
@@ -335,6 +340,7 @@ final List<UserRouteProgress> userProgress = [
     startedAt: DateTime.utc(2026, 8, 25, 8, 0, 0),
     completedAt: null,
     clearedCheckpoints: const [],
+    updatedAt: DateTime.now(),
   ),
 ];
 
