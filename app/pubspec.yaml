@@ -43,6 +43,9 @@ dependencies:
   geolocator: ^14.0.3
   maplibre_gl: ^0.27.0
   google_sign_in: ^7.2.0
+  # Web版はauthenticate()が使えず、SDKが描画するボタン(renderButton)が
+  # 必要なため直接依存として追加(PR #13レビュー指摘: Web版ログイン不具合の修正)
+  google_sign_in_web: ^1.1.0
   # auth_repository.dart で @visibleForTesting を使うために直接依存として明記
   # (Flutter SDK経由の間接依存のままだと flutter analyze がinfoを出すため)
   meta: ^1.16.0
