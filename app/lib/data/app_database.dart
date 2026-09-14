@@ -2,6 +2,8 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'database_factory.dart';
+
 /// 端末内SQLiteのスキーマ定義とDB初期化を担うヘルパー。
 ///
 /// national_routes / route_checkpoints は国道マスターデータ（459路線分の器）、
@@ -30,6 +32,9 @@ class AppDatabase {
   }
 
   Future<Database> _open() async {
+    // Web版ではsqfliteの標準factoryが使えないため、IndexedDBベースの
+    // factoryに差し替える（Android/iOS/デスクトップでは何もしない）。
+    configureDatabaseFactory();
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
     return openDatabase(

@@ -7,33 +7,40 @@
 // 購読するため、実際のFirebaseプロジェクトに接続せずにテストできるよう、
 // setUp内で AuthRepository.instance を firebase_auth_mocks の
 // MockFirebaseAuth に差し替えたテスト専用インスタンスへ置き換えている
-// （PR #13レビュー指摘対応）。
+// (PR #13レビュー指摘対応)。
 //
-// 注意1: AuthRepository.instance は「初回読み取り時に初期化される」静的
+// 注意1: AuthRepository.instance は「初回読み取り時に初期化される」遅延
 // フィールドで、初期化時に本物の FirebaseAuth.instance へアクセスしに行く
-// （Firebase.initializeApp()未呼び出しのテスト環境では [core/no-app] で
-// 落ちる）。そのため、このフィールドは setUp内で一度も読み取らず、必ず
-// 先に書き込む（Dartの遅延初期化は「読む前に書けば初期化子は実行されない」
-// 仕様のため）。「元のインスタンスを保存してtearDownで戻す」実装にすると、
-// その保存のための読み取りで初期化子が走ってクラッシュするので行わない。
+// (Firebase.initializeApp()未呼び出しのテスト環境では [core/no-app] で
+// 落ちる)。そのため、このフィールドは setUp内で一度も読み取らず、必ず
+// 先に書き込む(Dartの遅延初期化は「読む前に書けば初期化子は実行されない」
+// 仕様のため)。
 //
 // 注意2: MockFirebaseAuth の authStateChanges() は、コンストラクタで
-// signedIn: true を渡しても最初のイベントを発行しない（currentUserだけが
-// 同期的に設定される）。そのためAuthGate側（app.dart）で
+// signedIn: true を渡しても最初のイベントを発行しない(currentUserだけが
+// 同期的に設定される)。そのためAuthGate側(app.dart)で
 // StreamBuilder(initialData: AuthRepository.instance.currentUser, ...)
 // として、ストリームの最初のイベントを待たずcurrentUserで初期分岐できるように
 // してある。これが無いと、テストではAuthGateがローディング表示のまま
-// 永久に進まなくなる。
+// 進まなくなる。
 //
 // 注意3: RouteRepository.instance / AppDatabase.instance はどちらも
 // プロセス全体で使い回されるシングルトンで、開いたDB接続やシード済み
-// Futureをキャッシュしている。このファイルには testWidgets が複数あり、
-// 1つ目のテストで開いた接続・シードキャッシュを2つ目のテストがそのまま
-// 使い回すと、2つ目のテストのDBクエリが（例外も出さずに）二度と解決しない
-// 状態になることを確認した。そのため setUp のたびに一度DB接続を閉じて
-// キャッシュを空にし、各テストが必ず「まっさらな状態からDBを開き直す」
-// ようにしている。
+// キャッシュを保持している。このファイルには testWidgets が複数あり、
+// 前のテストが開いた接続・キャッシュを引き継ぐと状態が汚染されるため、
+// setUp のたびに一度DB接続とキャッシュを破棄し、各テストが必ずまっさらな
+// 状態からDBを開き直せるようにしている。
+//
+// 注意4: RouteRepository経由のSQLite読み込み(HomeScreenのinitState内の
+// 非同期処理)は、テストのfake-asyncゾーン内では完了を検知できないため、
+// pumpWidget自体をrunAsync(実時間・実イベントループ)の中で行い、
+// 読み込みが完了するまで実時間で少し待ってからフレームを確定させる
+// (sqflite初期化に起因するテストハング対策、PR #18の修正を踏襲)。
+// さらに、AuthGateを経由するようになった分、HomeScreenが実際にマウント
+// されてinitStateの非同期読み込みが反映されるまでに複数フレームかかる
+// ことがあるため、pump()を1回だけでなく短い間隔で数回繰り返す。
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -43,22 +50,14 @@ import 'package:kokudo/data/auth_repository.dart';
 import 'package:kokudo/data/route_repository.dart';
 
 void main() {
-  // HomeScreenの初期化でRouteRepository経由のSQLite読み書きが走るが、
-  // `flutter test`はVM上で動くためsqfliteのプラットフォームチャンネル実装が
-  // 使えない（databaseFactory not initializedで落ちる）。FFI版に差し替える。
-  //
-  // ここで使うのは databaseFactoryFfi ではなく databaseFactoryFfiNoIsolate。
-  // 通常のdatabaseFactoryFfiは内部でワーカーIsolateを使うが、widget test環境
-  // ではそのIsolateとのやり取りがうまく完了しないことがあるため。
-  // 参考: https://github.com/tekartik/sqflite/blob/master/sqflite_common_ffi/doc/testing.md
   setUpAll(() {
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfiNoIsolate;
+    databaseFactory = databaseFactoryFfi;
   });
 
   setUp(() async {
     // 前のテストが開いたDB接続・シードキャッシュを必ず破棄してから、
-    // 各テストがまっさらな状態でDBを開き直せるようにする（注意3参照）。
+    // 各テストがまっさらな状態でDBを開き直せるようにする(注意3参照)。
     await AppDatabase.instance.resetForTesting();
     RouteRepository.instance.resetSeedCacheForTesting();
 
@@ -75,40 +74,44 @@ void main() {
   });
 
   testWidgets('KokudoRunApp launches without throwing', (WidgetTester tester) async {
-    await tester.pumpWidget(const KokudoRunApp());
-    await _pumpUntilSettled(tester);
+    await _pumpAppAndWaitForLoad(tester);
 
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('Home screen shows the start running button', (WidgetTester tester) async {
-    await tester.pumpWidget(const KokudoRunApp());
-    await _pumpUntilSettled(tester, maxPumps: 40);
+    await _pumpAppAndWaitForLoad(tester);
 
     expect(find.text('ランニング開始'), findsOneWidget);
   });
 }
 
-/// HomeScreenのinitStateが行うSQLiteへの複数回の非同期読み書き
-/// （RouteRepository経由、sqflite_common_ffi）が完了するまでフレームを
-/// 送り続ける。
+/// RouteRepository経由のSQLite読み込み(initState内の非同期処理)は、
+/// テストのfake-asyncゾーン内では完了を検知できないため、
+/// pumpWidget自体をrunAsync(実時間・実イベントループ)の中で行う。
 ///
-/// databaseFactoryFfiNoIsolateに変えてもなお、widget test環境内では
-/// 時間を進めるだけの`pump()`だけではDB操作の完了が反映されないことが
-/// あったため、`runAsync()`で実時間の隙間を挟んでから`pump()`する、を
-/// 繰り返す方式にしている（plain testの中で直接呼ぶ分には問題なく完了する
-/// ことは確認済みなので、widget test特有の事情と見られる）。
+/// 調査の結果、この環境ではsqflite_common_ffiの初回openDatabase()
+/// (ネイティブsqlite3ライブラリのロード＋ワーカーIsolateの起動を含む)に
+/// かかる時間が数秒〜20秒超までかなりばらつくことを time-stamped
+/// ログで確認した。固定時間待ちでは足りない場合があるため、
+/// AuthGate/HomeScreenの両方が使うCircularProgressIndicator(ローディング
+/// 表示)が消える=読み込み完了を検知するまで実時間でポーリングする
+/// (最大60秒。通常は数百ms〜数秒で終わる)。
 ///
-/// HeroStageの背景・キャラクターはループ再生するアニメーション画像なので、
-/// `pumpAndSettle()`（フレームが尽きるまで待つ方式）は使えない（永久に終わらず
-/// タイムアウトしてしまう）。そのため、固定回数のループにしている。
-Future<void> _pumpUntilSettled(
-  WidgetTester tester, {
-  int maxPumps = 40,
-  Duration delay = const Duration(milliseconds: 50),
-}) async {
-  for (var i = 0; i < maxPumps; i++) {
-    await tester.runAsync(() => Future<void>.delayed(delay));
-    await tester.pump();
+/// pumpWidget自体もrunAsync内で行っているため、ポーリングループも
+/// runAsync内で完結させ、ループの各周でtester.pump()を呼んで
+/// setState()の反映を都度フレームに反映させている。
+Future<void> _pumpAppAndWaitForLoad(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    await tester.pumpWidget(const KokudoRunApp());
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    while (DateTime.now().isBefore(deadline) &&
+        find.byType(CircularProgressIndicator).evaluate().isNotEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await tester.pump();
+    }
+  });
+  for (var i = 0; i < 10; i++) {
+    await tester.pump(const Duration(milliseconds: 100));
   }
 }
