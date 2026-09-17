@@ -187,6 +187,95 @@ class RouteRepository {
     return rows.map(RunLog.fromMap).toList();
   }
 
+  /// 既存の走行記録の距離・時間を更新する。差分距離を進捗(currentDistanceKm)に
+  /// 加算し、完走状態を再評価する。
+  Future<void> updateRunLog({
+    required RunLog oldLog,
+    required double distanceKm,
+    required int durationSeconds,
+    required double caloriesBurned,
+  }) async {
+    final db = await _db;
+    final updatedLog = RunLog(
+      logId: oldLog.logId,
+      userId: oldLog.userId,
+      routeId: oldLog.routeId,
+      distanceKm: distanceKm,
+      durationSeconds: durationSeconds,
+      caloriesBurned: caloriesBurned,
+      recordedAt: oldLog.recordedAt,
+    );
+    await db.update(
+      'run_logs',
+      updatedLog.toMap(),
+      where: 'log_id = ?',
+      whereArgs: [oldLog.logId],
+    );
+
+    final deltaKm = distanceKm - oldLog.distanceKm;
+    if (deltaKm != 0) {
+      await _adjustProgress(oldLog.routeId, deltaKm);
+    }
+  }
+
+  /// 走行記録を削除する。対象路線の進捗からもその分の距離を差し引く。
+  Future<void> deleteRunLog(RunLog log) async {
+    final db = await _db;
+    await db.delete('run_logs', where: 'log_id = ?', whereArgs: [log.logId]);
+    await _adjustProgress(log.routeId, -log.distanceKm);
+  }
+
+  /// [routeId]の進捗(currentDistanceKm)に[deltaKm]を加算し、完走判定を
+  /// 再評価する。編集・削除どちらも記録の増減として扱えるよう共通化したもの。
+  Future<void> _adjustProgress(String routeId, double deltaKm) async {
+    final existing = await getProgress(routeId);
+    if (existing == null) return;
+
+    final route = await getRoute(routeId);
+    final rawDistance = existing.currentDistanceKm + deltaKm;
+    final newDistance = rawDistance < 0 ? 0.0 : rawDistance;
+    final isCompleted = route != null && route.totalDistanceKm > 0 && newDistance >= route.totalDistanceKm;
+
+    await saveProgress(UserRouteProgress(
+      userId: existing.userId,
+      routeId: existing.routeId,
+      currentDistanceKm: (isCompleted && route != null) ? route.totalDistanceKm : newDistance,
+      targetEndDate: existing.targetEndDate,
+      runsPerWeekGoal: existing.runsPerWeekGoal,
+      isCompleted: isCompleted,
+      startedAt: existing.startedAt,
+      completedAt: isCompleted ? (existing.completedAt ?? DateTime.now()) : null,
+      clearedCheckpoints: existing.clearedCheckpoints,
+      updatedAt: DateTime.now(),
+    ));
+  }
+
+  /// 今日を含む連続記録日数(ストリーク)を返す。
+  /// 今日まだ走っていなくても、前日まで連続していれば継続中として扱う
+  /// (「今日中に走ればストリークを維持できる」という一般的な挙動)。
+  Future<int> currentStreakDays() async {
+    final logs = await getRunLogs();
+    if (logs.isEmpty) return 0;
+
+    final ranDays = logs
+        .map((l) => DateTime(l.recordedAt.year, l.recordedAt.month, l.recordedAt.day))
+        .toSet();
+
+    final today = DateTime.now();
+    var cursor = DateTime(today.year, today.month, today.day);
+    if (!ranDays.contains(cursor)) {
+      cursor = cursor.subtract(const Duration(days: 1));
+      if (!ranDays.contains(cursor)) return 0;
+    }
+
+    var streak = 0;
+    while (ranDays.contains(cursor)) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+    return streak;
+  }
+
   /// 一度にチャレンジできるのは1路線のみのため、進捗が付いていても
   /// currentDistanceKm が0より大きい路線だけを「挑戦中」とみなす。
   Future<RouteStatus> routeStatusOf(String routeId) async {
@@ -197,10 +286,39 @@ class RouteRepository {
     return RouteStatus.notStarted;
   }
 
-  /// 現在「挑戦中」（進捗があり未完走）の路線IDを返す。
-  /// 見つからない場合は、シードデータの初期アクティブ路線にフォールバックする
-  /// （路線選択フローが未実装のため、暫定措置）。
+  static const String _activeRouteIdSettingKey = 'active_route_id';
+
+  Future<String?> _getSetting(String key) async {
+    final db = await _db;
+    final rows = await db.query('app_settings', where: 'key = ?', whereArgs: [key]);
+    if (rows.isEmpty) return null;
+    return rows.first['value'] as String?;
+  }
+
+  Future<void> _setSetting(String key, String value) async {
+    final db = await _db;
+    await db.insert(
+      'app_settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 現在「挑戦中」の路線IDを返す。
+  /// 1. [setActiveRoute]でユーザーが明示的に選んだ路線があれば、それを優先する
+  ///    (ただし既に完走済みになっていた場合は無視して2.以降にフォールバックする)
+  /// 2. 進捗があり未完走の路線があればそれを使う(手動選択がまだ一度も
+  ///    行われていない既存ユーザー向けの後方互換)
+  /// 3. どちらも無ければ、シードデータの初期アクティブ路線にフォールバックする
   Future<String> getActiveRouteId() async {
+    final overrideId = await _getSetting(_activeRouteIdSettingKey);
+    if (overrideId != null) {
+      final overrideProgress = await getProgress(overrideId);
+      if (overrideProgress == null || !overrideProgress.isCompleted) {
+        return overrideId;
+      }
+    }
+
     final all = await _allProgress();
     for (final progress in all) {
       if (!progress.isCompleted && progress.currentDistanceKm > 0) {
@@ -208,6 +326,42 @@ class RouteRepository {
       }
     }
     return seed.activeRouteId;
+  }
+
+  /// 「挑戦する国道を変更」から呼ぶ: 指定した路線を明示的にアクティブにする。
+  /// - 進捗レコードがまだ無い場合は、今日を起点にした目標日(90日後)で新規作成する
+  /// - 進捗はあるがまだ0km(実質未着手)の場合も、目標日を今日起点に立て直す。
+  ///   シードデータ等の古い目標日をそのまま使うと、切り替え直後なのに
+  ///   「1日◯kmペース」の必要ペース表示が実態と合わない数字になってしまうため。
+  /// - 既に走った実績がある(0kmより進んでいる)場合は、その計画をそのまま維持する
+  ///   (既存の進捗があれば維持し、後で切り替えて戻せば続きから再開できる)。
+  /// 最後に選択内容をapp_settingsに保存する。
+  Future<void> setActiveRoute(String routeId) async {
+    final existing = await getProgress(routeId);
+    if (existing == null) {
+      await saveProgress(UserRouteProgress(
+        userId: userId,
+        routeId: routeId,
+        currentDistanceKm: 0,
+        targetEndDate: DateTime.now().add(const Duration(days: 90)),
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ));
+    } else if (existing.currentDistanceKm <= 0 && !existing.isCompleted) {
+      await saveProgress(UserRouteProgress(
+        userId: existing.userId,
+        routeId: existing.routeId,
+        currentDistanceKm: 0,
+        targetEndDate: DateTime.now().add(const Duration(days: 90)),
+        runsPerWeekGoal: existing.runsPerWeekGoal,
+        isCompleted: false,
+        startedAt: DateTime.now(),
+        completedAt: null,
+        clearedCheckpoints: existing.clearedCheckpoints,
+        updatedAt: DateTime.now(),
+      ));
+    }
+    await _setSetting(_activeRouteIdSettingKey, routeId);
   }
 
   Future<int> completedRouteCount() async {
@@ -246,7 +400,10 @@ class RouteRepository {
   /// ランニング計測画面の終了時に呼ぶ: RunLogを保存し、対象路線の進捗
   /// （currentDistanceKm）に加算する。合計が路線の総距離に達した場合は
   /// isCompleted / completedAt を更新する。
-  Future<void> recordRun({
+  ///
+  /// 戻り値: この呼び出しで新たに完走した（未完走→完走に変わった）場合はtrue。
+  /// 完走演出（エフェクト表示）を出すべきかどうかの判定に使う。
+  Future<bool> recordRun({
     required String routeId,
     required double distanceKm,
     required int durationSeconds,
@@ -264,6 +421,7 @@ class RouteRepository {
 
     final route = await getRoute(routeId);
     final existing = await getProgress(routeId);
+    final wasCompleted = existing?.isCompleted ?? false;
     final newDistance = (existing?.currentDistanceKm ?? 0) + distanceKm;
     final isCompleted = route != null && newDistance >= route.totalDistanceKm;
 
@@ -279,6 +437,8 @@ class RouteRepository {
       clearedCheckpoints: existing?.clearedCheckpoints ?? const [],
       updatedAt: DateTime.now(),
     ));
+
+    return isCompleted && !wasCompleted;
   }
 
   /// 完走ナビ（目標期日・週間ペース）の変更を保存する。

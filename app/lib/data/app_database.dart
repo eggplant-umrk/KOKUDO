@@ -15,7 +15,8 @@ class AppDatabase {
 
   static const _dbName = 'kokudo.db';
   // v2: user_route_progress に updated_at を追加(Firestore同期のマージ判定用)。
-  static const _dbVersion = 2;
+  // v3: 「挑戦する国道を変更」機能用に app_settings テーブルを追加。
+  static const _dbVersion = 3;
 
   Database? _db;
 
@@ -64,6 +65,9 @@ class AppDatabase {
           await db.execute(
             "UPDATE user_route_progress SET updated_at = started_at WHERE updated_at = ''",
           );
+        }
+        if (oldVersion < 3) {
+          await db.execute(_appSettingsTableStatement);
         }
       },
     );
@@ -133,5 +137,15 @@ class AppDatabase {
     CREATE INDEX idx_run_logs_user_route
       ON run_logs(user_id, route_id)
     ''',
+    _appSettingsTableStatement,
   ];
+
+  /// 「挑戦する国道を変更」で選んだ路線IDなど、単一ユーザー分の
+  /// キー・バリュー設定を保持する汎用テーブル。
+  static const String _appSettingsTableStatement = '''
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+    ''';
 }

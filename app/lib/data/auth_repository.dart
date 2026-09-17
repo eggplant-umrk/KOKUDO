@@ -81,6 +81,12 @@ class AuthRepository {
     return _auth.signInWithCredential(credential);
   }
 
+  /// 開発中の動作確認用: GoogleのOAuth設定(承認済みオリジン等)に依存せず
+  /// ログインを完了させたい場合に使う匿名サインイン。
+  Future<UserCredential> signInAnonymously() {
+    return _auth.signInAnonymously();
+  }
+
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();
