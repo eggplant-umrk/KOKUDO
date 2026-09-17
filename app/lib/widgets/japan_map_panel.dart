@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../models/national_route.dart';
@@ -6,9 +9,14 @@ import '../models/user_route_progress.dart';
 
 /// 走破・地図コレクション画面用の実地図パネル（MapLibre GL）。
 ///
-/// 各国道の起点にステータス別の色分けマーカー（未走破=グレー、
-/// 挑戦中=ネオンブルー、完走=ゴールド）を表示する。マーカーをタップすると
-/// その路線が属する地方でフィルターできる（もう一度タップで解除）。
+/// 各国道の起点・終点にステータス別の色分けマーカー（未走破=グレー、
+/// 挑戦中=ネオンブルー、完走=ゴールド）を表示する。起点は塗りつぶし円、
+/// 終点（ゴール）は白地に色付きの太い縁取りの円で区別する。マーカーを
+/// タップするとその路線が属する地方でフィルターできる（もう一度タップで解除）。
+/// さらに、各路線の実際の道なり（`NationalRoute.geojsonPath` が指す
+/// GeoJSON）をステータス色の線として地図に描画する。GeoJSONアセットが
+/// まだ用意されていない路線は、その路線の線だけを静かに省略する
+/// （起点・終点マーカーの表示は妨げない）。
 ///
 /// また、路線が1本もない地方でもフィルターを選べるよう、8地方それぞれの
 /// 代表地点に常時タップ可能な地方マーカー（ラベル付き）を別途表示する。
@@ -27,7 +35,7 @@ class JapanMapPanel extends StatefulWidget {
   });
 
   @override
-  State<JapanMapPanel> createState() => _JapanMapPanelState();
+  State<JapanMapPanel> createState() => JapanMapPanelState();
 }
 
 /// ネオンブルー（挑戦中）はブランドの標識ブルーより彩度を上げた色を使う。
@@ -62,11 +70,14 @@ const Map<RegionKey, String> _regionShortLabel = {
   RegionKey.kyushuOkinawa: '九州',
 };
 
-class _JapanMapPanelState extends State<JapanMapPanel> {
+class JapanMapPanelState extends State<JapanMapPanel> {
   MapLibreMapController? _controller;
   final Map<String, Circle> _circleByRouteId = {};
+  final Map<String, Circle> _goalCircleByRouteId = {};
   final Map<RegionKey, Circle> _circleByRegion = {};
   final Map<RegionKey, Symbol> _labelByRegion = {};
+  final Set<String> _lineLayerIds = {};
+  final Set<String> _lineSourceIds = {};
 
   static const CameraPosition _initialCamera = CameraPosition(
     target: LatLng(36.5, 138.2),
@@ -115,7 +126,7 @@ class _JapanMapPanelState extends State<JapanMapPanel> {
     widget.onSelectRegion(widget.activeRegion == region ? null : region);
   }
 
-  /// 現在の路線リスト・ステータス・選択中の地方に合わせてマーカーを描き直す。
+  /// 現在の路線リスト・ステータス・選択中の地方に合わせてマーカー・路線を描き直す。
   Future<void> _syncMarkers() async {
     final controller = _controller;
     if (controller == null) return;
@@ -123,6 +134,10 @@ class _JapanMapPanelState extends State<JapanMapPanel> {
     if (_circleByRouteId.isNotEmpty) {
       await controller.removeCircles(_circleByRouteId.values);
       _circleByRouteId.clear();
+    }
+    if (_goalCircleByRouteId.isNotEmpty) {
+      await controller.removeCircles(_goalCircleByRouteId.values);
+      _goalCircleByRouteId.clear();
     }
     if (_circleByRegion.isNotEmpty) {
       await controller.removeCircles(_circleByRegion.values);
@@ -132,6 +147,10 @@ class _JapanMapPanelState extends State<JapanMapPanel> {
       await controller.removeSymbols(_labelByRegion.values);
       _labelByRegion.clear();
     }
+    await _clearRouteLines(controller);
+
+    // マーカーの下に敷く形で、各路線の実際の道なりを先に描画する。
+    await _syncRouteLines(controller);
 
     // 先に8地方の常時タップ可能なマーカー（路線が無くても選択できる）を描く。
     for (final entry in _regionCenters.entries) {
@@ -165,14 +184,17 @@ class _JapanMapPanelState extends State<JapanMapPanel> {
       _labelByRegion[region] = symbol;
     }
 
-    // その上に、実際の路線の起点マーカー（ステータス別に色分け）を重ねて描く。
+    // その上に、実際の路線の起点・終点マーカー（ステータス別に色分け）を重ねて描く。
+    // 起点=塗りつぶし円、終点(ゴール)=白地に色付きの太い縁取り、で区別する。
     for (final route in widget.routes) {
       final status = widget.statusOf(route.routeId);
       final selected = widget.activeRegion == route.region;
-      final circle = await controller.addCircle(
+      final color = _statusHexColor[status];
+
+      final startCircle = await controller.addCircle(
         CircleOptions(
           geometry: LatLng(route.startPoint.lat, route.startPoint.lng),
-          circleColor: _statusHexColor[status],
+          circleColor: color,
           circleRadius: selected ? 9 : 7,
           circleStrokeColor: '#FFFFFF',
           circleStrokeWidth: selected ? 2.5 : 1.5,
@@ -180,7 +202,112 @@ class _JapanMapPanelState extends State<JapanMapPanel> {
         ),
         {'routeId': route.routeId, 'region': route.region.name},
       );
-      _circleByRouteId[route.routeId] = circle;
+      _circleByRouteId[route.routeId] = startCircle;
+
+      final goalCircle = await controller.addCircle(
+        CircleOptions(
+          geometry: LatLng(route.endPoint.lat, route.endPoint.lng),
+          circleColor: '#FFFFFF',
+          circleRadius: selected ? 8 : 6,
+          circleStrokeColor: color,
+          circleStrokeWidth: selected ? 3.0 : 2.2,
+          circleOpacity: 0.95,
+        ),
+        {'routeId': route.routeId, 'region': route.region.name, 'kind': 'goal'},
+      );
+      _goalCircleByRouteId[route.routeId] = goalCircle;
+    }
+  }
+
+  /// 走破・地図コレクション画面の下部リストで路線が選ばれたときに、
+  /// 地図カメラをその路線の位置（起点・終点の中間点）へ移動させる。
+  /// 路線の総距離に応じてズームレベルを大まかに変える（短い路線ほど寄る）。
+  Future<void> focusOnRoute(NationalRoute route) async {
+    final controller = _controller;
+    if (controller == null) return;
+
+    final centerLat = (route.startPoint.lat + route.endPoint.lat) / 2;
+    final centerLng = (route.startPoint.lng + route.endPoint.lng) / 2;
+
+    final km = route.totalDistanceKm;
+    final double zoom;
+    if (km <= 1) {
+      zoom = 14;
+    } else if (km <= 10) {
+      zoom = 12;
+    } else if (km <= 50) {
+      zoom = 9.5;
+    } else if (km <= 150) {
+      zoom = 7.5;
+    } else if (km <= 400) {
+      zoom = 6.2;
+    } else {
+      zoom = 5.2;
+    }
+
+    await controller.animateCamera(
+      CameraUpdate.newLatLngZoom(LatLng(centerLat, centerLng), zoom),
+    );
+  }
+
+  /// 以前描画した路線ライン（ソース・レイヤー）をすべて取り除く。
+  /// レイヤーを先に消してからソースを消す必要があるため、この順番を守る。
+  Future<void> _clearRouteLines(MapLibreMapController controller) async {
+    for (final layerId in _lineLayerIds) {
+      try {
+        await controller.removeLayer(layerId);
+      } catch (_) {
+        // レイヤーが既に無い場合などは無視する。
+      }
+    }
+    _lineLayerIds.clear();
+    for (final sourceId in _lineSourceIds) {
+      try {
+        await controller.removeSource(sourceId);
+      } catch (_) {
+        // ソースが既に無い場合などは無視する。
+      }
+    }
+    _lineSourceIds.clear();
+  }
+
+  /// 各路線の `geojsonPath` からGeoJSONを読み込み、ステータス色の線として描画する。
+  /// アセットがまだ存在しない路線は読み込みに失敗するため、その路線の線だけを
+  /// 静かに省略する（他の路線やマーカー表示には影響させない）。
+  Future<void> _syncRouteLines(MapLibreMapController controller) async {
+    for (final route in widget.routes) {
+      if (route.geojsonPath.isEmpty) continue;
+
+      final Map<String, dynamic> geojson;
+      try {
+        final raw = await rootBundle.loadString(route.geojsonPath);
+        geojson = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        continue;
+      }
+
+      final status = widget.statusOf(route.routeId);
+      final selected = widget.activeRegion == route.region;
+      final sourceId = 'route-line-src-${route.routeId}';
+      final layerId = 'route-line-${route.routeId}';
+      try {
+        await controller.addGeoJsonSource(sourceId, geojson);
+        await controller.addLineLayer(
+          sourceId,
+          layerId,
+          LineLayerProperties(
+            lineColor: _statusHexColor[status],
+            lineWidth: selected ? 3.0 : 2.0,
+            lineOpacity: 0.85,
+            lineCap: 'round',
+            lineJoin: 'round',
+          ),
+        );
+        _lineSourceIds.add(sourceId);
+        _lineLayerIds.add(layerId);
+      } catch (_) {
+        // このアセットの追加に失敗した場合は静かに無視する。
+      }
     }
   }
 
