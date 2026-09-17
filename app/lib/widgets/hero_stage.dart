@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../data/auth_repository.dart';
 import '../models/national_route.dart';
 import '../theme/app_colors.dart';
 import 'goal_speech_bubble.dart';
@@ -20,8 +21,11 @@ class HeroStage extends StatelessWidget {
   final int? runsPerWeekGoal;
   final ValueChanged<DateTime> onChangeTargetEndDate;
   final ValueChanged<int?> onChangeRunsPerWeekGoal;
+  final VoidCallback onOpenHistory;
+  final VoidCallback onChangeRoute;
   final String passedLandmark; // 例: "42.0km地点｜小田原市"
   final String nextCheckpointLabel; // 例: "箱根峠まであと 12.4km"
+  final int streakDays; // 連続記録日数(ストリーク)。0の場合はバッジを表示しない。
 
   const HeroStage({
     super.key,
@@ -31,8 +35,11 @@ class HeroStage extends StatelessWidget {
     required this.runsPerWeekGoal,
     required this.onChangeTargetEndDate,
     required this.onChangeRunsPerWeekGoal,
+    required this.onOpenHistory,
+    required this.onChangeRoute,
     required this.passedLandmark,
     required this.nextCheckpointLabel,
+    this.streakDays = 0,
   });
 
   @override
@@ -61,7 +68,9 @@ class HeroStage extends StatelessWidget {
                           children: [
                             _routeBadge(),
                             const Spacer(),
-                            _settingsButton(),
+                            _historyButton(context),
+                            const SizedBox(width: 8),
+                            _settingsButton(context),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -108,6 +117,8 @@ class HeroStage extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (streakDays > 0)
+                _chip(Icons.local_fire_department, '$streakDays日連続', gold: true),
               _chip(Icons.location_on, passedLandmark),
               _chip(Icons.flag, nextCheckpointLabel, gold: true),
             ],
@@ -117,14 +128,22 @@ class HeroStage extends StatelessWidget {
     );
   }
 
-  /// 走路の背景イラスト。画像が未コミット・読み込み失敗の場合は、
-  /// キャラクター画像と同様にグラデーションのフォールバック表示に切り替える。
+  /// 走路の背景イラスト。road-bg.webpはGIF版(11.4MB)を同内容のまま
+  /// WebPに変換して軽量化したもの(約2.7MB)。読み込みに失敗した場合は
+  /// 元のGIF、それも失敗した場合はグラデーションのフォールバック表示に切り替える。
   Widget _buildRoadBackground() {
     return Image.asset(
       'assets/road-bg.webp',
       fit: BoxFit.cover,
       alignment: const Alignment(0, -0.44), // object-position: 50% 28% 相当
-      errorBuilder: (context, error, stackTrace) => _roadBackgroundFallback(),
+      errorBuilder: (context, error, stackTrace) {
+        return Image.asset(
+          'assets/road-bg.gif',
+          fit: BoxFit.cover,
+          alignment: const Alignment(0, -0.44),
+          errorBuilder: (context, error, stackTrace) => _roadBackgroundFallback(),
+        );
+      },
     );
   }
 
@@ -140,6 +159,11 @@ class HeroStage extends StatelessWidget {
     );
   }
 
+  // 注: character-run.gif はdisposal method 2(前フレームを背景色で復元してから
+  // 描画)を使っており、Flutter(Skia)のGIFデコーダがこのパターンで最初の1コマ
+  // から進まない不具合があるため、アニメーションが再生されなかった。
+  // 同じ内容をアニメーションWebPに変換した character-run.webp を優先的に使用し、
+  // 万一読み込みに失敗した場合のみ元のGIF、それも失敗したらフォールバック表示。
   Widget _buildCharacter() {
     return Image.asset(
       'assets/character-run.webp',
@@ -194,18 +218,103 @@ class HeroStage extends StatelessWidget {
     );
   }
 
-  Widget _settingsButton() {
-    return ClipOval(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-        child: Container(
-          width: 36,
-          height: 36,
-          alignment: Alignment.center,
-          color: Colors.white.withValues(alpha: 0.88),
-          child: const Icon(Icons.settings, size: 18, color: AppColors.textPrimary),
+  /// ラン履歴・カレンダー画面を直接開くボタン(設定ボタンの隣に配置)。
+  Widget _historyButton(BuildContext context) {
+    return GestureDetector(
+      onTap: onOpenHistory,
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            color: Colors.white.withValues(alpha: 0.88),
+            child: const Icon(Icons.calendar_month, size: 18, color: AppColors.textPrimary),
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _settingsButton(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _showSettingsSheet(context),
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            color: Colors.white.withValues(alpha: 0.88),
+            child: const Icon(Icons.settings, size: 18, color: AppColors.textPrimary),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 設定ボトムシート。現段階では「ルート変更」「ログアウト」のみを置く簡易版。
+  /// 「挑戦する国道を変更」は[onChangeRoute]経由でChangeRouteScreenを開く。
+  void _showSettingsSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppColors.radiusLg)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.borderSubtle,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '設定',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              ListTile(
+                leading: const Icon(Icons.alt_route, color: AppColors.textSecondary),
+                title: const Text('挑戦する国道を変更', style: TextStyle(fontWeight: FontWeight.w700)),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onChangeRoute();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.logout, color: AppColors.danger),
+                title: const Text(
+                  'ログアウト',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.danger),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  AuthRepository.instance.signOut();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 

@@ -9,6 +9,8 @@ import '../utils/pace_utils.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/hero_stage.dart';
 import '../widgets/stat_tile.dart';
+import 'change_route_screen.dart';
+import 'run_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onStartRunning;
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   UserRouteProgress? _progress;
   double _todayKm = 0;
   double _monthKm = 0;
+  int _streakDays = 0;
 
   @override
   void initState() {
@@ -41,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final progress = await _repo.getProgress(routeId);
     final today = await _repo.todayTotalDistanceKm();
     final month = await _repo.monthTotalDistanceKm();
+    final streakDays = await _repo.currentStreakDays();
     if (!mounted) return;
     setState(() {
       _routeId = routeId;
@@ -48,8 +52,23 @@ class _HomeScreenState extends State<HomeScreen> {
       _progress = progress;
       _todayKm = today;
       _monthKm = month;
+      _streakDays = streakDays;
       _loading = false;
     });
+  }
+
+  Future<void> _handleOpenHistory() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RunHistoryScreen()),
+    );
+    await _load();
+  }
+
+  Future<void> _handleChangeRoute() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ChangeRouteScreen()),
+    );
+    await _load();
   }
 
   Future<void> _handleChangeTargetEndDate(DateTime value) async {
@@ -158,8 +177,11 @@ class _HomeScreenState extends State<HomeScreen> {
               runsPerWeekGoal: runsPerWeekGoal,
               onChangeTargetEndDate: _handleChangeTargetEndDate,
               onChangeRunsPerWeekGoal: _handleChangeRunsPerWeekGoal,
+              onOpenHistory: _handleOpenHistory,
+              onChangeRoute: _handleChangeRoute,
               passedLandmark: passedLandmark,
               nextCheckpointLabel: nextCheckpointLabel,
+              streakDays: _streakDays,
             ),
           ),
           SafeArea(
