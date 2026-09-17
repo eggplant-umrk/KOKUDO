@@ -43,9 +43,13 @@ dependencies:
   geolocator: ^14.0.3
   maplibre_gl: ^0.27.0
   google_sign_in: ^7.2.0
+  # Web版はauthenticate()が使えず、SDKが描画するボタン(renderButton)が
+  # 必要なため直接依存として追加(PR #13レビュー指摘: Web版ログイン不具合の修正)
+  google_sign_in_web: ^1.1.0
   # auth_repository.dart で @visibleForTesting を使うために直接依存として明記
   # (Flutter SDK経由の間接依存のままだと flutter analyze がinfoを出すため)
   meta: ^1.16.0
+  sqflite_common_ffi_web: ^1.1.2
 
 dev_dependencies:
   flutter_test:
@@ -57,6 +61,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  sqlite3_flutter_libs: ^0.6.0+eol
 
   # widget_test.dart でAuthGate(Firebase Authentication)を実際のFirebaseに
   # 接続せずにテストするためのモック。firebase_auth ^6.x に対応。
@@ -76,6 +81,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # 国道GeoJSON・ルートメタデータ(先行6路線分)
+  assets:
+    - assets/routes/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
