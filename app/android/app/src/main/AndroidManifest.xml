@@ -5,7 +5,7 @@
     <!-- 走破・地図コレクション画面の地図タイル取得（maplibre_gl）、Firestore等に必要 -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="kokudo"
+        android:label="KOKUDO"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
