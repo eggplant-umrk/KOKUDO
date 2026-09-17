@@ -71,6 +71,10 @@ dev_dependencies:
   # チャンネル実装が無いため、FFI版のSQLite実装に差し替えてテストを通す。
   sqflite_common_ffi: ^2.4.3
 
+  # アプリアイコン(国道標識風ロゴ)をAndroid/iOS向けに一括生成するためのツール。
+  # `dart run flutter_launcher_icons` で実行する(下の flutter_launcher_icons: 設定を参照)。
+  flutter_launcher_icons: ^0.14.4
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -119,3 +123,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# flutter_launcher_icons の設定。
+# - image_path: iOSのApp Store用アイコン/Androidの旧来型(角丸なし)アイコンの元画像。
+#   1024x1024・背景は透過なしの正方形(白背景で統一)。
+# - adaptive_icon_*: Android 8.0+ のアダプティブアイコン用。foreground(透過PNG、
+#   円形/角丸四角/スクイークルなど各種マスクで切り抜かれても絵柄が欠けないよう、
+#   中央66%程度のセーフゾーン内に収めてある)と、background(単色の白)を分けて指定する。
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
