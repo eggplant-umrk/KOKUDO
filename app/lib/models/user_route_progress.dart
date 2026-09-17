@@ -17,6 +17,10 @@ class UserRouteProgress {
   final DateTime? completedAt;
   final List<String> clearedCheckpoints;
 
+  /// 最終更新日時。Firestore同期時に、複数端末からの更新をどちらが新しいか
+  /// 判定するために使う（PR #14レビュー指摘対応）。
+  final DateTime updatedAt;
+
   const UserRouteProgress({
     required this.userId,
     required this.routeId,
@@ -27,9 +31,12 @@ class UserRouteProgress {
     required this.startedAt,
     this.completedAt,
     this.clearedCheckpoints = const [],
+    required this.updatedAt,
   });
 
   factory UserRouteProgress.fromMap(Map<String, Object?> map) {
+    final updatedAtRaw = map['updated_at'] as String?;
+    final startedAtRaw = map['started_at'] as String;
     return UserRouteProgress(
       userId: map['user_id'] as String,
       routeId: map['route_id'] as String,
@@ -37,12 +44,17 @@ class UserRouteProgress {
       targetEndDate: DateTime.parse(map['target_end_date'] as String),
       runsPerWeekGoal: map['runs_per_week_goal'] as int?,
       isCompleted: (map['is_completed'] as int) == 1,
-      startedAt: DateTime.parse(map['started_at'] as String),
+      startedAt: DateTime.parse(startedAtRaw),
       completedAt: map['completed_at'] != null
           ? DateTime.parse(map['completed_at'] as String)
           : null,
       clearedCheckpoints: (jsonDecode(map['cleared_checkpoints'] as String) as List)
           .cast<String>(),
+      // 旧データ（updated_at列追加前に作られたレコード）にはupdated_atが
+      // 無い/空の場合があるため、その場合はstarted_atで代用する。
+      updatedAt: (updatedAtRaw != null && updatedAtRaw.isNotEmpty)
+          ? DateTime.parse(updatedAtRaw)
+          : DateTime.parse(startedAtRaw),
     );
   }
 
@@ -57,6 +69,7 @@ class UserRouteProgress {
       'started_at': startedAt.toIso8601String(),
       'completed_at': completedAt?.toIso8601String(),
       'cleared_checkpoints': jsonEncode(clearedCheckpoints),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
 }

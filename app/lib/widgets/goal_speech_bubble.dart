@@ -91,6 +91,7 @@ class _GoalSpeechBubbleState extends State<GoalSpeechBubble> {
         startedAt: DateTime.now(),
         completedAt: null,
         clearedCheckpoints: const [],
+        updatedAt: DateTime.now(),
       ),
     );
 

@@ -6,6 +6,7 @@ import '../models/route_checkpoint.dart';
 import '../models/run_log.dart';
 import '../models/user_route_progress.dart';
 import 'app_database.dart';
+import 'auth_repository.dart';
 import 'mock_data.dart' as seed;
 
 /// [AppDatabase]（端末内SQLite）を実データソースとして扱うリポジトリ。
@@ -18,8 +19,41 @@ class RouteRepository {
 
   static final RouteRepository instance = RouteRepository._();
 
-  /// 現段階ではログイン機能がないため、単一ユーザーIDを固定で使用する。
-  static const String userId = 'usr_123';
+  /// 未ログイン時（テストやオフライン初期化など）のフォールバック用ユーザーID。
+  static const String fallbackUserId = 'usr_123';
+
+  /// ログイン中のFirebase Authのuidを返す。
+  /// 未ログイン時はフォールバックとして[fallbackUserId]を使用する。
+  static String get currentUserId => AuthRepository.instance.currentUser?.uid ?? fallbackUserId;
+
+  /// 既存コード互換用のゲッター。
+  static String get userId => currentUserId;
+
+  /// 初回ログイン時など、ローカルの[fallbackUserId]の進捗・ログを[newUid]に移行する。
+  Future<void> migrateFallbackUserIfNeeded(String newUid) async {
+    if (newUid == fallbackUserId) return;
+    await ensureSeeded();
+    final db = await _db;
+    final existingNew = await db.query(
+      'user_route_progress',
+      where: 'user_id = ?',
+      whereArgs: [newUid],
+    );
+    if (existingNew.isEmpty) {
+      await db.update(
+        'user_route_progress',
+        {'user_id': newUid},
+        where: 'user_id = ?',
+        whereArgs: [fallbackUserId],
+      );
+      await db.update(
+        'run_logs',
+        {'user_id': newUid},
+        where: 'user_id = ?',
+        whereArgs: [fallbackUserId],
+      );
+    }
+  }
 
   Future<Database> get _db async => AppDatabase.instance.database;
 
@@ -117,6 +151,9 @@ class RouteRepository {
     return rows.map(UserRouteProgress.fromMap).toList();
   }
 
+  /// Firestore同期用に、ユーザーの全進捗レコードを取得する（[_allProgress]の公開版）。
+  Future<List<UserRouteProgress>> getAllProgress() => _allProgress();
+
   Future<void> saveProgress(UserRouteProgress progress) async {
     final db = await _db;
     await db.insert(
@@ -129,6 +166,18 @@ class RouteRepository {
   Future<void> addRunLog(RunLog log) async {
     final db = await _db;
     await db.insert('run_logs', log.toMap());
+  }
+
+  /// Firestoreからのプル同期用: 同じlog_idが既に存在する場合は上書きする
+  /// （[addRunLog]と異なりConflictAlgorithm.replaceを使うため、再同期時に
+  /// 重複エラーにならない）。
+  Future<void> upsertRunLog(RunLog log) async {
+    final db = await _db;
+    await db.insert(
+      'run_logs',
+      log.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<RunLog>> getRunLogs() async {
@@ -228,6 +277,7 @@ class RouteRepository {
       startedAt: existing?.startedAt ?? DateTime.now(),
       completedAt: isCompleted ? DateTime.now() : existing?.completedAt,
       clearedCheckpoints: existing?.clearedCheckpoints ?? const [],
+      updatedAt: DateTime.now(),
     ));
   }
 
@@ -248,6 +298,7 @@ class RouteRepository {
       startedAt: existing?.startedAt ?? DateTime.now(),
       completedAt: existing?.completedAt,
       clearedCheckpoints: existing?.clearedCheckpoints ?? const [],
+      updatedAt: DateTime.now(),
     ));
   }
 }
