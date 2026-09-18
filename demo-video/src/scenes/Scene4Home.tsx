@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig, staticFile } from 'remotion';
+import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { colors } from '../theme';
 import { PhoneFrame } from '../components/PhoneFrame';
 import { JourneyProgress } from '../components/JourneyProgress';
@@ -10,6 +10,7 @@ import { Vignette } from '../components/Vignette';
 import { VoiceLine } from '../components/VoiceLine';
 import { JapanMapSilhouette } from '../components/JapanMapSilhouette';
 import { CharacterRunSprite } from '../components/CharacterRunSprite';
+import { RoadBackgroundSprite } from '../components/RoadBackgroundSprite';
 
 /**
  * 0:16-0:31 ホーム画面デモ。app/lib/screens/home_screen.dart + widgets/hero_stage.dart +
@@ -111,9 +112,9 @@ export const Scene4Home: React.FC = () => {
               zIndex: 3,
             }}
           >
-            {/* 実アプリの road-bg.webp アニメーション背景を再現 */}
-            <img
-              src={staticFile('assets/road-bg.webp')}
+            {/* 実アプリの road-bg.webp アニメーション背景を再現。
+                修正対応: RoadBackgroundSpriteでRemotionフレームに明示同期(かくつき対策) */}
+            <RoadBackgroundSprite
               style={{
                 position: 'absolute',
                 top: 0,
@@ -126,7 +127,6 @@ export const Scene4Home: React.FC = () => {
                 objectPosition: '50% 28%',
                 zIndex: 0,
               }}
-              alt="road-bg"
             />
             {/* キャラクター走行アニメーション。hero_stage.dart の FractionallySizedBox(heightFactor: 0.78) に対応。
                 78%はこのhero div(560px)基準 = 実アプリのExpanded(Stack)領域基準と一致させている。

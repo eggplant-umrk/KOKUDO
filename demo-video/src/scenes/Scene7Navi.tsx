@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig, staticFile } from 'remotion';
+import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { colors } from '../theme';
 import { PhoneFrame } from '../components/PhoneFrame';
 import { JourneyProgress } from '../components/JourneyProgress';
@@ -7,6 +7,7 @@ import { Caption } from '../components/Caption';
 import { Pill, ProgressBar, GoalCard, RouteBadge, StatChip, GradientCTA } from '../components/AppUI';
 import { VoiceLine } from '../components/VoiceLine';
 import { CharacterRunSprite } from '../components/CharacterRunSprite';
+import { RoadBackgroundSprite } from '../components/RoadBackgroundSprite';
 
 /**
  * 0:51.5-1:01.5 逆算ナビデモ(10秒/300f)。
@@ -172,8 +173,7 @@ export const Scene7Navi: React.FC = () => {
                 見えるとの指摘のため、Scene4Homeと同じ完成したホーム画面(背景+キャラクター+
                 統計+ボタン)をここでも再現し、その中の進捗カードにカメラがズームする形にする */}
             <div style={{ height: 560, position: 'relative', overflow: 'hidden', padding: 18 }}>
-              <img
-                src={staticFile('assets/road-bg.webp')}
+              <RoadBackgroundSprite
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -186,7 +186,6 @@ export const Scene7Navi: React.FC = () => {
                   objectPosition: '50% 28%',
                   zIndex: 0,
                 }}
-                alt="road-bg"
               />
               <CharacterRunSprite
                 style={{
