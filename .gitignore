@@ -28,6 +28,7 @@ GoogleService-Info.plist
 *.p12
 *.key
 *.mobileprovision
+key.properties
 
 # 誤ってリポジトリ直下に生成されたFlutter/OSプラットフォームフォルダ
 # (実体は app/ 配下にあるため、直下のものは除外する)
@@ -37,3 +38,8 @@ GoogleService-Info.plist
 /macos/
 /windows/
 /web/
+
+# JVM/Gradle のクラッシュダンプ・ヒープダンプ
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
