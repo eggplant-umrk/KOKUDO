@@ -95,49 +95,55 @@ export const Scene4Home: React.FC = () => {
       </div>
       <div style={{ transform: `translateX(${enterX}px) scale(${enterScale}) scale(${HERO_SCALE}) scale(${zoom}) translateY(${panY}px)` }}>
         <PhoneFrame rotateY={rotateY + slowDrift} rotateX={2} glow="rgba(47,169,255,0.18)">
-          {/* 実アプリの road-bg.webp アニメーション背景を再現 */}
-          <img
-            src={staticFile('assets/road-bg.webp')}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: '50% 28%',
-              zIndex: 0,
-            }}
-            alt="road-bg"
-          />
-          {/* キャラクター走行アニメーション。hero_stage.dart の FractionallySizedBox(heightFactor: 0.78) に対応 */}
-          <img
-            src={staticFile('assets/character-run.webp')}
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              height: '78%',
-              maxHeight: 436,
-              width: 'auto',
-              objectFit: 'contain',
-              objectPosition: 'bottom center',
-              zIndex: 2,
-            }}
-            alt="character-run"
-          />
+          {/* hero_stage.dart: Column内でExpanded(Stack: 背景+バッジ+カード+キャラクター)と
+              チェックポイントチップ行が非重複の別セクション、その外側(home_screen.dart)に
+              StatTile+ボタンの固定ブロックがさらに別セクションとして続く。
+              修正1対応: 背景・キャラクター画像はこのhero領域(560px)の内部に限定し、
+              78%の高さ計算がPhoneFrame全体(900px)ではなくhero領域基準になるようにする
+              (以前は900px基準で計算され、キャラクターが下部の統計カードと重なっていた)。 */}
           <div
             style={{
               height: 560,
-              background: 'transparent',
               position: 'relative',
+              overflow: 'hidden',
               padding: 18,
               zIndex: 3,
             }}
           >
+            {/* 実アプリの road-bg.webp アニメーション背景を再現 */}
+            <img
+              src={staticFile('assets/road-bg.webp')}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: '50% 28%',
+                zIndex: 0,
+              }}
+              alt="road-bg"
+            />
+            {/* キャラクター走行アニメーション。hero_stage.dart の FractionallySizedBox(heightFactor: 0.78) に対応。
+                78%はこのhero div(560px)基準 = 実アプリのExpanded(Stack)領域基準と一致させている */}
+            <img
+              src={staticFile('assets/character-run.webp')}
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                height: '78%',
+                width: 'auto',
+                objectFit: 'contain',
+                objectPosition: 'bottom center',
+                zIndex: 2,
+              }}
+              alt="character-run"
+            />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <RouteBadge text={route.name} />
               <div
@@ -188,6 +194,44 @@ export const Scene4Home: React.FC = () => {
             </div>
           </div>
 
+          {/* hero_stage.dart: Expanded(Stack)の直後、HeroStage自身の末尾にあるチェックポイントチップ行
+              (StatTile/ボタンより前、かつキャラクター領域の外)。修正1対応でここに独立させた */}
+          <div
+            style={{
+              padding: '10px 20px 0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 12,
+                backgroundColor: colors.bgSurfaceRaised,
+                fontSize: 13,
+                color: colors.textPrimary,
+                fontWeight: 700,
+              }}
+            >
+              42.5km地点 ・ 品川宿を通過
+            </div>
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 12,
+                backgroundColor: '#FFF4E0',
+                fontSize: 13,
+                color: colors.accentGoldText,
+                fontWeight: 700,
+              }}
+            >
+              次のチェックポイント: 箱根峠まであと52.5km
+            </div>
+          </div>
+
+          {/* home_screen.dart: HeroStageの外側、SafeArea+Paddingで続くStatTile+ボタンの
+              固定ブロック(HeroStageとは非重複の完全に別セクション) */}
           <div style={{ padding: '16px 18px' }}>
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1 }}>
@@ -207,39 +251,6 @@ export const Scene4Home: React.FC = () => {
             >
               <GradientCTA label="ランニング開始" />
               <TapRipple x={207} y={27} triggerFrame={338} />
-            </div>
-            <div
-              style={{
-                marginTop: 14,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}
-            >
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 12,
-                  backgroundColor: colors.bgSurfaceRaised,
-                  fontSize: 13,
-                  color: colors.textPrimary,
-                  fontWeight: 700,
-                }}
-              >
-                42.5km地点 ・ 品川宿を通過
-              </div>
-              <div
-                style={{
-                  padding: '10px 14px',
-                  borderRadius: 12,
-                  backgroundColor: '#FFF4E0',
-                  fontSize: 13,
-                  color: colors.accentGoldText,
-                  fontWeight: 700,
-                }}
-              >
-                次のチェックポイント: 箱根峠まであと52.5km
-              </div>
             </div>
           </div>
         </PhoneFrame>

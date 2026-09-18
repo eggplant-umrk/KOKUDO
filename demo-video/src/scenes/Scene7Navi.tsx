@@ -1,10 +1,10 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig, staticFile } from 'remotion';
 import { colors } from '../theme';
 import { PhoneFrame } from '../components/PhoneFrame';
 import { JourneyProgress } from '../components/JourneyProgress';
 import { Caption } from '../components/Caption';
-import { Pill, ProgressBar, GoalCard, RouteBadge } from '../components/AppUI';
+import { Pill, ProgressBar, GoalCard, RouteBadge, StatChip, GradientCTA } from '../components/AppUI';
 import { VoiceLine } from '../components/VoiceLine';
 
 /**
@@ -167,21 +167,52 @@ export const Scene7Navi: React.FC = () => {
           }}
         >
           <PhoneFrame rotateY={-2} rotateX={0} glow="rgba(47,169,255,0.1)" scale={0.9}>
-            <div
-              style={{
-                height: 900,
-                background: `linear-gradient(180deg, ${colors.routeSignBlue} 0%, ${colors.bgSurface} 78%)`,
-                position: 'relative',
-                padding: 18,
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {/* ホーム画面のダイジェスト表示: ルートバッジ＋進捗カードのみ */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+            {/* 修正3対応: 進捗カードのみのダイジェスト表示だと「カードの下が空白」に
+                見えるとの指摘のため、Scene4Homeと同じ完成したホーム画面(背景+キャラクター+
+                統計+ボタン)をここでも再現し、その中の進捗カードにカメラがズームする形にする */}
+            <div style={{ height: 560, position: 'relative', overflow: 'hidden', padding: 18 }}>
+              <img
+                src={staticFile('assets/road-bg.webp')}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: '50% 28%',
+                  zIndex: 0,
+                }}
+                alt="road-bg"
+              />
+              <img
+                src={staticFile('assets/character-run.webp')}
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  height: '78%',
+                  width: 'auto',
+                  objectFit: 'contain',
+                  objectPosition: 'bottom center',
+                  zIndex: 2,
+                }}
+                alt="character-run"
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <RouteBadge text="国道1号" />
               </div>
-              <div style={{ position: 'relative', flex: 0, marginTop: 20 }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 128,
+                  left: 18,
+                  right: 18,
+                }}
+              >
                 <GoalCard
                   remainingKm="522.9km"
                   dailyKm="10.3km"
@@ -191,6 +222,19 @@ export const Scene7Navi: React.FC = () => {
                   kmTotal="622.9km"
                   emphasize={Math.min(1, (frame - 20) / 40)}
                 />
+              </div>
+            </div>
+            <div style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <StatChip label="本日の走行距離" value="5.24km" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <StatChip label="今月の総走行距離" value="48.6km" />
+                </div>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <GradientCTA label="ランニング開始" />
               </div>
             </div>
           </PhoneFrame>
@@ -309,10 +353,10 @@ export const Scene7Navi: React.FC = () => {
       <JourneyProgress step={4} />
       <Caption text={'あと何キロ\n必要か。'} appearAt={15} holdFrames={110} />
       <Caption text={'逆算ナビが、\n並走する。'} appearAt={130} holdFrames={270} />
-      {/* 修正対応: ノイズ解決のため音声を削除(s7_1.wav, s7_2.wav)
-          新しいナレーション音声はVOICEVOXで生成後、以下を復帰させてください:
-          <VoiceLine id="s7_1" from={15} />
-          <VoiceLine id="s7_2" from={130} /> */}
+      {/* 修正4対応: DC帯ノイズの原因究明を諦め、39秒以降の音声を全削除してから
+          VOICEVOXでゼロから再生成したナレーション(BGM/SEなし、ナレーションのみ) */}
+      <VoiceLine id="s7_1" from={15} />
+      <VoiceLine id="s7_2" from={130} />
       <AbsoluteFill style={{ backgroundColor: colors.black, opacity: fadeToBlack, pointerEvents: 'none' }} />
     </AbsoluteFill>
   );

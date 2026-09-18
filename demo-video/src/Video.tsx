@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Audio, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Sequence, interpolate, useCurrentFrame } from 'remotion';
 import { MAP_NAVI_OVERLAP, RUNNING_MAP_OVERLAP, sceneFrames } from './durations';
 import { fonts } from './theme';
 import { Scene1Hook } from './scenes/Scene1Hook';
@@ -85,9 +85,8 @@ export const KokudoDemoVideo: React.FC = () => {
   const naviStart = mapStart + sceneFrames('map') - MAP_NAVI_OVERLAP;
   const closingStart = naviStart + sceneFrames('navi');
 
-  const bgmStart = naviStart;
-  const bgmDuration = sceneFrames('navi') + sceneFrames('closing');
-
+  // 修正4対応: 39秒以降(Scene7/8)のDC帯ノイズが原因究明できないまま何度も再発したため、
+  // 該当区間のBGM自体を完全に削除し、ナレーションのみのシンプルな構成にした。
   return (
     <div style={{ fontFamily: fonts.body, width: '100%', height: '100%' }}>
       <Sequence from={hookStart} durationInFrames={sceneFrames('hook')}>
@@ -113,9 +112,6 @@ export const KokudoDemoVideo: React.FC = () => {
       </Sequence>
       <Sequence from={closingStart} durationInFrames={sceneFrames('closing')}>
         <Scene8Closing />
-      </Sequence>
-      <Sequence from={bgmStart} durationInFrames={bgmDuration} layout="none">
-        <Audio src={staticFile('audio/sfx_outro_bgm.wav')} volume={0.35} />
       </Sequence>
     </div>
   );
