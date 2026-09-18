@@ -240,14 +240,19 @@ export const Scene6Map: React.FC = () => {
             >
               <div style={{ fontSize: 15, fontWeight: 900, color: colors.textPrimary }}>走破・地図コレクション</div>
               <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                {/* 修正対応: 制覇路線数の母数を実アプリ(nationalRouteCount=459)に合わせて更新。
+                    累計走行距離・カバー率も route_repository.dart の計算式
+                    (coverageRatio = cumulativeDistanceKm / nationalNetworkTotalKm(55000km))
+                    に整合する実アプリの値(43.2km→0.0785%≈0.08%)に更新した。
+                    旧来の値(86.4km, 0.83%)は実は計算式と整合していなかった(86.4/55000=0.157%)。 */}
                 <div style={{ flex: 1 }}>
-                  <StatChip label="制覇路線数" value="2/6" valueSize={15} />
+                  <StatChip label="制覇路線数" value="2/459" valueSize={15} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <StatChip label="累計走行距離" value="86.4km" valueSize={15} />
+                  <StatChip label="累計走行距離" value="43.2km" valueSize={15} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <StatChip label="カバー率" value="0.83%" valueSize={15} />
+                  <StatChip label="カバー率" value="0.08%" valueSize={15} />
                 </div>
               </div>
             </div>
