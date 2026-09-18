@@ -6,10 +6,24 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ENGINE = 'http://localhost:50021';
 const SPEAKER = 11; // 玄野武宏 ノーマル
 const OUT_DIR = path.join(__dirname, '..', 'public', 'audio');
+// BGM/SE(sfx_*.wav)は44100Hzで生成されているため、ミックスダウン時のサンプルレート
+// 不一致によるアーティファクトを避けるためナレーションもこれに統一する。
+const TARGET_SAMPLE_RATE = 44100;
+
+/** VOICEVOXの出力(24000Hz)をffmpegで44100Hzにリサンプリングしてから保存する。 */
+function writeResampled(outPath, buf) {
+  const tmpPath = `${outPath}.tmp.wav`;
+  fs.writeFileSync(tmpPath, buf);
+  execFileSync('ffmpeg', ['-y', '-i', tmpPath, '-ar', String(TARGET_SAMPLE_RATE), '-acodec', 'pcm_s16le', outPath], {
+    stdio: 'ignore',
+  });
+  fs.unlinkSync(tmpPath);
+}
 
 const LINES = [
   { id: 's2', text: '見えないと、続かない。' },
@@ -63,9 +77,9 @@ async function synthesize({ id, text }) {
   if (!synthRes.ok) throw new Error(`synthesis failed for ${id}: ${synthRes.status} ${await synthRes.text()}`);
   const buf = Buffer.from(await synthRes.arrayBuffer());
   const outPath = path.join(OUT_DIR, `${id}.wav`);
-  fs.writeFileSync(outPath, buf);
-  const dur = wavDurationSeconds(buf);
-  return { id, text, durationSec: dur, bytes: buf.length };
+  writeResampled(outPath, buf);
+  const dur = wavDurationSeconds(fs.readFileSync(outPath));
+  return { id, text, durationSec: dur, bytes: fs.statSync(outPath).size };
 }
 
 (async () => {

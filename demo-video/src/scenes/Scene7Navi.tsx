@@ -80,6 +80,9 @@ export const Scene7Navi: React.FC = () => {
 
   // ビート2: クローズアップ。HOME_FOCUS_END以降の段階で逆算ナビへ遷移。
   // PhoneFrameは背景として減光+ぼかし、カードだけを強いEase-Outでポップアップさせる
+  // クローズアップ段階での数字スポットライト(CUT_FRAMEはHOME_FOCUS_ENDの後に設定)
+  // TDZ修正: adjustedCutFrameは使用箇所(このすぐ下)より前で定義する必要がある
+  const adjustedCutFrame = Math.max(CUT_FRAME, HOME_FOCUS_END - 6);
   const adjBackdropStart = adjustedCutFrame - 6;
   const adjBackdropEnd = adjustedCutFrame + 16;
   const backdropBlur = interpolate(
@@ -117,8 +120,6 @@ export const Scene7Navi: React.FC = () => {
     },
   );
 
-  // クローズアップ段階での数字スポットライト(CUT_FRAMEはHOME_FOCUS_ENDの後に設定)
-  const adjustedCutFrame = Math.max(CUT_FRAME, HOME_FOCUS_END - 6);
   const emphasizeRemaining = interpolate(
     frame,
     [adjustedCutFrame + 10, adjustedCutFrame + 25, adjustedCutFrame + 70, adjustedCutFrame + 85],

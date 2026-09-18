@@ -7,10 +7,22 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ENGINE = 'http://localhost:50021';
 const SPEAKER = 11;
 const OUT_DIR = path.join(__dirname, '..', 'public', 'audio');
+// generate-voice.js と同様、BGM/SEの44100Hzに合わせてリサンプリングする。
+const TARGET_SAMPLE_RATE = 44100;
+
+function writeResampled(outPath, buf) {
+  const tmpPath = `${outPath}.tmp.wav`;
+  fs.writeFileSync(tmpPath, buf);
+  execFileSync('ffmpeg', ['-y', '-i', tmpPath, '-ar', String(TARGET_SAMPLE_RATE), '-acodec', 'pcm_s16le', outPath], {
+    stdio: 'ignore',
+  });
+  fs.unlinkSync(tmpPath);
+}
 
 async function audioQuery(text) {
   const res = await fetch(`${ENGINE}/audio_query?text=${encodeURIComponent(text)}&speaker=${SPEAKER}`, { method: 'POST' });
@@ -66,10 +78,11 @@ async function synthesizeFixed(id, text, targetMoraText, replacementText) {
   });
   if (!synthRes.ok) throw new Error(`synthesis failed for ${id}: ${synthRes.status} ${await synthRes.text()}`);
   const buf = Buffer.from(await synthRes.arrayBuffer());
-  fs.writeFileSync(path.join(OUT_DIR, `${id}.wav`), buf);
-  const dur = wavDurationSeconds(buf);
+  const outPath = path.join(OUT_DIR, `${id}.wav`);
+  writeResampled(outPath, buf);
+  const dur = wavDurationSeconds(fs.readFileSync(outPath));
   console.log(`${id}: ${dur.toFixed(2)}s  "${text}"`);
-  return { id, text, durationSec: dur, bytes: buf.length };
+  return { id, text, durationSec: dur, bytes: fs.statSync(outPath).size };
 }
 
 (async () => {
