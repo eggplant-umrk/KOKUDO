@@ -1,0 +1,24 @@
+{
+  "name": "kokudo-demo-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KOKUDO 4分ピッチ用デモ動画(75秒)のRemotionプロジェクト。構成・シーン分割の雛形。本実装(実データ・素材の差し込み)は別途着手。",
+  "scripts": {
+    "start": "remotion studio src/index.ts",
+    "preview": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts KokudoDemo out/kokudo-demo.mp4",
+    "still": "remotion still src/index.ts KokudoDemo out/thumbnail.png"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.190",
+    "@remotion/google-fonts": "^4.0.524",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.190"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.5.4"
+  }
+}
