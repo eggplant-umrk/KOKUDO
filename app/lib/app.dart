@@ -251,7 +251,12 @@ class _RootShellState extends State<RootShell> {
           Offstage(
             key: const ValueKey('running-screen'),
             offstage: _screen != _ScreenKey.running,
-            child: RunningScreen(onFinish: _handleRunFinished),
+            child: RunningScreen(
+              onFinish: _handleRunFinished,
+              // 退避中に挑戦する国道が変更されることがあるため、
+              // 再表示されたタイミングを計測画面側に伝える。
+              isActive: _screen == _ScreenKey.running,
+            ),
           ),
       ],
     );

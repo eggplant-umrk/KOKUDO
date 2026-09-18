@@ -19,7 +19,19 @@ import '../widgets/stat_tile.dart';
 class RunningScreen extends StatefulWidget {
   final ValueChanged<RunResult> onFinish;
 
-  const RunningScreen({super.key, required this.onFinish});
+  /// この画面がいま表示されているかどうか。
+  ///
+  /// 計測中に他のタブへ移ってもStateを保持する（＝画面外に退避させたまま
+  /// 生かしておく）ため、初期化時の一度きりの読み込みだけでは、退避中に
+  /// 挑戦する国道が変更された場合に古い路線を掴んだままになってしまう。
+  /// 再表示されたタイミングを知るためにこのフラグを受け取る。
+  final bool isActive;
+
+  const RunningScreen({
+    super.key,
+    required this.onFinish,
+    this.isActive = true,
+  });
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
@@ -80,6 +92,17 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
         }
       });
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant RunningScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 非表示から再表示に変わったときは、挑戦する国道が変更されている
+    // 可能性があるため読み込み直す。計測を開始したあとは、走行中の路線を
+    // 途中ですり替えないよう読み込まない。
+    if (!oldWidget.isActive && widget.isActive && !_hasStarted) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
