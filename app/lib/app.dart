@@ -82,7 +82,24 @@ class _RootShellState extends State<RootShell> {
   RunResult? _lastResult;
   bool _syncing = false;
 
-  void _goTo(_ScreenKey key) => setState(() => _screen = key);
+  /// 計測画面を生かしたままにしておくかどうか。
+  /// 一度ランニング計測タブを開いたらtrueになり、計測を終えるとfalseに戻る。
+  bool _runningMounted = false;
+
+  void _goTo(_ScreenKey key) => setState(() {
+        _screen = key;
+        if (key == _ScreenKey.running) _runningMounted = true;
+      });
+
+  void _handleRunFinished(RunResult result) {
+    setState(() {
+      _lastResult = result;
+      _screen = _ScreenKey.home;
+      // 計測が完了したので計測画面は破棄する。次にタブを開いたときは
+      // 新しい計測として作り直される。
+      _runningMounted = false;
+    });
+  }
 
   /// 開発中のFirestore同期動作確認用（実プロダクトのUIには含まれない）。
   Future<void> _handleSyncNow() async {
@@ -211,21 +228,32 @@ class _RootShellState extends State<RootShell> {
     );
   }
 
+  /// 表示中の画面を組み立てる。
+  ///
+  /// 計測画面だけは、他のタブに切り替えてもウィジェットツリーから外さない。
+  /// 外すと State が破棄され、dispose() で位置ストリームの購読が切れて
+  /// フォアグラウンドサービスごと計測が止まってしまうため、Offstage で
+  /// 画面外に退避させたまま生かしておく。
+  ///
+  /// 子の並び順は常に「0番目=ホーム/地図、1番目=計測画面」で固定する。
+  /// 並びが変わると Element が作り直され、State を保持する意味が無くなる。
   Widget _buildActiveScreen() {
-    switch (_screen) {
-      case _ScreenKey.home:
-        return HomeScreen(onStartRunning: () => _goTo(_ScreenKey.running));
-      case _ScreenKey.running:
-        return RunningScreen(
-          onFinish: (result) {
-            setState(() {
-              _lastResult = result;
-              _screen = _ScreenKey.home;
-            });
-          },
-        );
-      case _ScreenKey.map:
-        return const MapCollectionScreen();
-    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_screen == _ScreenKey.home)
+          HomeScreen(onStartRunning: () => _goTo(_ScreenKey.running))
+        else if (_screen == _ScreenKey.map)
+          const MapCollectionScreen()
+        else
+          const SizedBox.shrink(),
+        if (_runningMounted)
+          Offstage(
+            key: const ValueKey('running-screen'),
+            offstage: _screen != _ScreenKey.running,
+            child: RunningScreen(onFinish: _handleRunFinished),
+          ),
+      ],
+    );
   }
 }
