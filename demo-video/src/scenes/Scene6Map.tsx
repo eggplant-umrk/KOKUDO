@@ -61,13 +61,15 @@ import { TapRipple } from '../components/TapRipple';
  *     暗めに沈める形にした。さらにクライマックス前に134号カードへ軽いプレビュー
  *     ズーム+グローを追加し、「地図→完走カード→100%」の3拍子のカメラ巡回を明確にした。
  */
+/* 修正1対応(2回目): マーカー座標をJapanMapSilhouetteの新しい画像座標系
+   (地図画像に対するパーセンテージ、JapanMapSilhouette.tsxのREGION_POSITIONS参照)に変更 */
 const FOCUS_MARKERS = [
-  { id: '1', cx: 50, cy: 100, color: colors.routeNeonBlue },
-  { id: '134', cx: 53, cy: 110, color: colors.accentGold },
+  { id: '1', left: 56, top: 63, color: colors.routeNeonBlue },
+  { id: '134', left: 58.5, top: 66, color: colors.accentGold },
 ] as const;
 const MINOR_MARKERS = [
-  { id: '4', cx: 45, cy: 25 },
-  { id: '292', cx: 48, cy: 75 },
+  { id: '4', left: 62, top: 33 },
+  { id: '292', left: 48, top: 52 },
 ] as const;
 /** ゴールド化パーティクルの固定配置(決定的レンダリングのためMath.randomは使わない) */
 const GOLD_PARTICLES = [
@@ -262,27 +264,47 @@ export const Scene6Map: React.FC = () => {
               }}
             >
               <div style={{ height: 168, display: 'flex', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
-                <div style={{ transform: 'scale(0.4)', transformOrigin: 'top center', position: 'relative' }}>
+                <div style={{ transform: 'scale(0.84)', transformOrigin: 'top center', position: 'relative' }}>
                   <JapanMapSilhouette>
                     {MINOR_MARKERS.map((m) => (
-                      <MapMarker key={m.id} cx={m.cx} cy={m.cy} color={colors.routeInactive} scale={0.5} />
+                      <MapMarker key={m.id} leftPct={m.left} topPct={m.top} color={colors.routeInactive} scale={0.5} />
                     ))}
                     {/* 134号地点の局所グロー(全画面フラッシュの代替) */}
-                    <circle
-                      cx={53}
-                      cy={110}
-                      r={6 + mapPointGlow * 14}
-                      fill={colors.accentGold}
-                      opacity={mapPointGlow * 0.35}
-                      style={{ filter: `blur(4px)` }}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '58.5%',
+                        top: '66%',
+                        transform: 'translate(-50%, -50%)',
+                        width: (6 + mapPointGlow * 14) * 2,
+                        height: (6 + mapPointGlow * 14) * 2,
+                        borderRadius: '50%',
+                        background: colors.accentGold,
+                        opacity: mapPointGlow * 0.35,
+                        filter: 'blur(4px)',
+                      }}
                     />
                     {FOCUS_MARKERS.map((m) => (
-                      <g
+                      <div
                         key={m.id}
-                        transform={`translate(${m.cx} ${m.cy}) scale(${m.id === '1' ? marker1Pop : marker134Pop})`}
+                        style={{
+                          position: 'absolute',
+                          left: `${m.left}%`,
+                          top: `${m.top}%`,
+                          transform: `translate(-50%, -50%) scale(${m.id === '1' ? marker1Pop : marker134Pop})`,
+                        }}
                       >
-                        <MapMarker cx={0} cy={0} color={m.color} />
-                      </g>
+                        <div
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            background: m.color,
+                            border: `1.5px solid ${colors.white}`,
+                            boxShadow: `0 0 4px ${m.color}`,
+                          }}
+                        />
+                      </div>
                     ))}
                   </JapanMapSilhouette>
                 </div>
@@ -306,6 +328,7 @@ export const Scene6Map: React.FC = () => {
               <Pill label="すべて" tone="active" />
               <Pill label="挑戦中" />
               <Pill label="走破済み" />
+              <Pill label="未挑戦" />
               <TapRipple x={35} y={12} triggerFrame={150} />
             </div>
           </div>

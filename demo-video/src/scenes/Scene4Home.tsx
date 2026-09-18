@@ -9,6 +9,7 @@ import { TapRipple } from '../components/TapRipple';
 import { Vignette } from '../components/Vignette';
 import { VoiceLine } from '../components/VoiceLine';
 import { JapanMapSilhouette } from '../components/JapanMapSilhouette';
+import { CharacterRunSprite } from '../components/CharacterRunSprite';
 
 /**
  * 0:16-0:31 ホーム画面デモ。app/lib/screens/home_screen.dart + widgets/hero_stage.dart +
@@ -91,7 +92,7 @@ export const Scene4Home: React.FC = () => {
       />
       {/* 個別指摘対応: シーン開始直後に日本地図をごく薄く見せ、Scene6への伏線とする */}
       <div style={{ position: 'absolute', right: '6%', top: '10%', opacity: mapHint, transform: 'scale(1.6)' }}>
-        <JapanMapSilhouette />
+        <JapanMapSilhouette showLabels={false} showMockDots={false} />
       </div>
       <div style={{ transform: `translateX(${enterX}px) scale(${enterScale}) scale(${HERO_SCALE}) scale(${zoom}) translateY(${panY}px)` }}>
         <PhoneFrame rotateY={rotateY + slowDrift} rotateX={2} glow="rgba(47,169,255,0.18)">
@@ -128,9 +129,9 @@ export const Scene4Home: React.FC = () => {
               alt="road-bg"
             />
             {/* キャラクター走行アニメーション。hero_stage.dart の FractionallySizedBox(heightFactor: 0.78) に対応。
-                78%はこのhero div(560px)基準 = 実アプリのExpanded(Stack)領域基準と一致させている */}
-            <img
-              src={staticFile('assets/character-run.webp')}
+                78%はこのhero div(560px)基準 = 実アプリのExpanded(Stack)領域基準と一致させている。
+                修正2対応: CharacterRunSpriteでRemotionフレームに明示同期(かくつき対策) */}
+            <CharacterRunSprite
               style={{
                 position: 'absolute',
                 bottom: 0,
@@ -142,7 +143,6 @@ export const Scene4Home: React.FC = () => {
                 objectPosition: 'bottom center',
                 zIndex: 2,
               }}
-              alt="character-run"
             />
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <RouteBadge text={route.name} />

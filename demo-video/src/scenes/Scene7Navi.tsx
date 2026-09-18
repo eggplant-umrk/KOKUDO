@@ -6,6 +6,7 @@ import { JourneyProgress } from '../components/JourneyProgress';
 import { Caption } from '../components/Caption';
 import { Pill, ProgressBar, GoalCard, RouteBadge, StatChip, GradientCTA } from '../components/AppUI';
 import { VoiceLine } from '../components/VoiceLine';
+import { CharacterRunSprite } from '../components/CharacterRunSprite';
 
 /**
  * 0:51.5-1:01.5 逆算ナビデモ(10秒/300f)。
@@ -187,8 +188,7 @@ export const Scene7Navi: React.FC = () => {
                 }}
                 alt="road-bg"
               />
-              <img
-                src={staticFile('assets/character-run.webp')}
+              <CharacterRunSprite
                 style={{
                   position: 'absolute',
                   bottom: 0,
@@ -200,7 +200,6 @@ export const Scene7Navi: React.FC = () => {
                   objectPosition: 'bottom center',
                   zIndex: 2,
                 }}
-                alt="character-run"
               />
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <RouteBadge text="国道1号" />
