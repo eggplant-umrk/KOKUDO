@@ -17,7 +17,7 @@ class KokudoRunApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '国道ラン - 国道完走チャレンジ',
+      title: 'KOKUDO',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

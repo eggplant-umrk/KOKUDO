@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -113,6 +113,29 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  /// 開発中の動作確認用: GoogleのOAuth「承認済みオリジン」設定に阻まれて
+  /// Web版のログインが通らない場合の抜け道。匿名サインインでAuthGateを
+  /// 通過し、機能そのもの(今回は完走エフェクトなど)の確認に進めるようにする。
+  Future<void> _handleAnonymousSignIn() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      await _auth.signInAnonymously();
+      if (mounted) setState(() => _loading = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorMessage =
+            '匿名ログインに失敗しました。Firebaseコンソールの Authentication → Sign-in method で '
+            'Anonymous を有効化してください。';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -135,8 +158,13 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 20),
               const Text(
-                '国道ラン',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
+                'KOKUDO',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                  color: AppColors.textPrimary,
+                ),
               ),
               const SizedBox(height: 6),
               const Text(
@@ -151,6 +179,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   _errorMessage!,
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 12, color: AppColors.danger, fontWeight: FontWeight.w600),
+                ),
+              ],
+              // Web版でGoogleログインがOAuthオリジン設定などに阻まれる場合の
+              // 開発用の抜け道（実プロダクトのUIには含まれない）。
+              // kDebugModeでガードし、本番(リリース)ビルドには出さない。
+              if (kIsWeb && kDebugMode && !_loading) ...[
+                const SizedBox(height: 20),
+                TextButton(
+                  onPressed: _handleAnonymousSignIn,
+                  child: const Text(
+                    'ゲストで続ける(開発確認用)',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textTertiary),
+                  ),
                 ),
               ],
             ],
