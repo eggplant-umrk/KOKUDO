@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, interpolate, spring, useCurrentFrame, useVideoConfig, staticFile } from 'remotion';
 import { colors } from '../theme';
 import { PhoneFrame } from '../components/PhoneFrame';
 import { JourneyProgress } from '../components/JourneyProgress';
@@ -97,7 +97,7 @@ export const Scene4Home: React.FC = () => {
         <PhoneFrame rotateY={rotateY + slowDrift} rotateX={2} glow="rgba(47,169,255,0.18)">
           {/* 実アプリの road-bg.webp アニメーション背景を再現 */}
           <img
-            src="/assets/road-bg.webp"
+            src={staticFile('assets/road-bg.webp')}
             style={{
               position: 'absolute',
               top: 0,
@@ -114,7 +114,7 @@ export const Scene4Home: React.FC = () => {
           />
           {/* キャラクター走行アニメーション。hero_stage.dart の FractionallySizedBox(heightFactor: 0.78) に対応 */}
           <img
-            src="/assets/character-run.webp"
+            src={staticFile('assets/character-run.webp')}
             style={{
               position: 'absolute',
               bottom: 0,

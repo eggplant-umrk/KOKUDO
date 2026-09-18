@@ -308,8 +308,10 @@ export const Scene7Navi: React.FC = () => {
       <JourneyProgress step={4} />
       <Caption text={'あと何キロ\n必要か。'} appearAt={15} holdFrames={110} />
       <Caption text={'逆算ナビが、\n並走する。'} appearAt={130} holdFrames={270} />
-      <VoiceLine id="s7_1" from={15} />
-      <VoiceLine id="s7_2" from={130} />
+      {/* 修正対応: ノイズ解決のため音声を削除(s7_1.wav, s7_2.wav)
+          新しいナレーション音声はVOICEVOXで生成後、以下を復帰させてください:
+          <VoiceLine id="s7_1" from={15} />
+          <VoiceLine id="s7_2" from={130} /> */}
       <AbsoluteFill style={{ backgroundColor: colors.black, opacity: fadeToBlack, pointerEvents: 'none' }} />
     </AbsoluteFill>
   );
