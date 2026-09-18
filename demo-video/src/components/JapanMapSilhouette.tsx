@@ -15,15 +15,27 @@ import { colors } from '../theme';
  * パーセンテージ座標を使い、position:absoluteでオーバーレイする(以前のSVG circle/g
  * ベースの実装から、img+div オーバーレイ方式に変更)。
  */
+/* 修正対応(2回目): 前回は各地方の全都道府県translate座標の単純平均を使っていたが、
+   中部地方は新潟・富山等の北寄りの県が平均を北へ強く引っ張り(top=54)、実際の
+   代表的位置(名古屋)よりかなり北(=関東に近い緯度)に表示されてしまい、結果として
+   「近畿が関東寄りに見える」という指摘につながっていた。今回は地方ごとに地理的に
+   代表的な1県(県庁所在地の都道府県、地方の中心)のtranslate座標をそのまま使い、
+   北→南・東→西の実際の位置関係を正しく再現する。代表県: 東北=宮城(仙台)、
+   関東=東京、中部=愛知(名古屋)、近畿=大阪、中国=岡山、四国=香川(高松)、
+   九州=熊本。北海道のみtranslateがbbox起点で北端に寄るため、視覚的重心へ
+   手動オフセット。ラベル同士が重ならないよう微調整済み。 */
+/* 修正対応(4回目): 「関東」(51,59)と「中部」(43,58)が経度差8・緯度差1しかなく
+   隣接して読みにくかったため、関東をさらに北へ、中部をさらに南西へ離して
+   ラベル同士が重ならないようにした。 */
 export const REGION_POSITIONS: Record<string, { left: number; top: number }> = {
-  hokkaido: { left: 57.5, top: 9 },
-  tohoku: { left: 60.5, top: 38 },
-  kanto: { left: 57.5, top: 60 },
-  chubu: { left: 44, top: 54 },
-  kinki: { left: 36, top: 68 },
-  chugoku: { left: 19, top: 66 },
-  shikoku: { left: 25, top: 79 },
-  kyushu: { left: 7, top: 66 },
+  hokkaido: { left: 57.8, top: 13 },
+  tohoku: { left: 64, top: 41 },
+  kanto: { left: 55, top: 52 },
+  chubu: { left: 40, top: 62 },
+  kinki: { left: 35, top: 70 },
+  chugoku: { left: 24, top: 66 },
+  shikoku: { left: 28, top: 76 },
+  kyushu: { left: 8, top: 80 },
 };
 
 const REGION_LABELS: Record<string, string> = {

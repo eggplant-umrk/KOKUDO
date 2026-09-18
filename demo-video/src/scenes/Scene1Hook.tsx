@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Easing, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import { colors } from '../theme';
 
 /**
@@ -74,14 +74,34 @@ export const Scene1Hook: React.FC = () => {
           style={{
             opacity: logoOpacity,
             transform: `scale(${logoScale * breathe})`,
-            color: colors.white,
-            fontSize: 56,
-            fontWeight: 900,
-            letterSpacing: 4,
-            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
           }}
         >
-          KOKUDO
+          {/* 新アプリアイコン反映(Desktopの新規アイコン画像をapp-icon.pngとして配置) */}
+          <img
+            src={staticFile('assets/app-icon.png')}
+            style={{
+              width: 78,
+              height: 78,
+              borderRadius: 18,
+              filter: `drop-shadow(0 0 ${10 * glowPulse}px ${colors.routeNeonBlue})`,
+            }}
+            alt="app-icon"
+          />
+          <div
+            style={{
+              color: colors.white,
+              fontSize: 44,
+              fontWeight: 900,
+              letterSpacing: 4,
+              textAlign: 'center',
+            }}
+          >
+            KOKUDO
+          </div>
         </div>
       </div>
     </AbsoluteFill>

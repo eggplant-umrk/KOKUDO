@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { colors } from '../theme';
 import { HexWatermark } from '../components/HexWatermark';
 
@@ -56,13 +56,33 @@ export const Scene8Closing: React.FC = () => {
           style={{
             opacity: logoIn,
             transform: `scale(${logoScale})`,
-            color: colors.white,
-            fontSize: 56,
-            fontWeight: 900,
-            letterSpacing: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
           }}
         >
-          KOKUDO
+          {/* 新アプリアイコン反映(Scene1と同じapp-icon.pngを使用) */}
+          <img
+            src={staticFile('assets/app-icon.png')}
+            style={{
+              width: 78,
+              height: 78,
+              borderRadius: 18,
+              filter: `drop-shadow(0 0 ${8 * glow}px rgba(47,169,255,0.6))`,
+            }}
+            alt="app-icon"
+          />
+          <div
+            style={{
+              color: colors.white,
+              fontSize: 44,
+              fontWeight: 900,
+              letterSpacing: 4,
+            }}
+          >
+            KOKUDO
+          </div>
         </div>
         <div
           style={{
