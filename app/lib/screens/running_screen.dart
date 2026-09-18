@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -18,7 +19,19 @@ import '../widgets/stat_tile.dart';
 class RunningScreen extends StatefulWidget {
   final ValueChanged<RunResult> onFinish;
 
-  const RunningScreen({super.key, required this.onFinish});
+  /// この画面がいま表示されているかどうか。
+  ///
+  /// 計測中に他のタブへ移ってもStateを保持する（＝画面外に退避させたまま
+  /// 生かしておく）ため、初期化時の一度きりの読み込みだけでは、退避中に
+  /// 挑戦する国道が変更された場合に古い路線を掴んだままになってしまう。
+  /// 再表示されたタイミングを知るためにこのフラグを受け取る。
+  final bool isActive;
+
+  const RunningScreen({
+    super.key,
+    required this.onFinish,
+    this.isActive = true,
+  });
 
   @override
   State<RunningScreen> createState() => _RunningScreenState();
@@ -29,6 +42,8 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
   // GPSの測位ノイズによる微小な位置のブレを停止中の移動として
   // 誤カウントしないための最小移動距離（メートル）。
   static const double _minMovementMeters = 3.0;
+  // OS側に渡す通知間隔のしきい値。これ未満の移動では位置更新が届かない。
+  static const int _distanceFilterMeters = 3;
 
   final RouteRepository _repo = RouteRepository.instance;
 
@@ -39,9 +54,24 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
 
   bool _hasStarted = false;
   double _distanceKm = 0;
-  int _durationSeconds = 0;
   bool _isPaused = false;
   bool _finishing = false;
+
+  // 経過時間はカウンタを加算せず、開始時刻からの実時間で求める。
+  // Timer.periodic はアプリがバックグラウンドに回ると間引かれるため、
+  // 加算方式だと画面を消している間の時間が丸ごと欠落してしまう。
+  DateTime? _startedAt;
+  Duration _pausedTotal = Duration.zero;
+  DateTime? _pausedAt;
+
+  /// 開始から現在までの経過秒数（一時停止していた時間は除く）。
+  int get _durationSeconds {
+    final startedAt = _startedAt;
+    if (startedAt == null) return 0;
+    final until = _pausedAt ?? DateTime.now();
+    final elapsed = until.difference(startedAt) - _pausedTotal;
+    return elapsed.isNegative ? 0 : elapsed.inSeconds;
+  }
 
   Position? _lastPosition;
   StreamSubscription<Position>? _positionSub;
@@ -62,6 +92,17 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
         }
       });
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant RunningScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 非表示から再表示に変わったときは、挑戦する国道が変更されている
+    // 可能性があるため読み込み直す。計測を開始したあとは、走行中の路線を
+    // 途中ですり替えないよう読み込まない。
+    if (!oldWidget.isActive && widget.isActive && !_hasStarted) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -85,11 +126,15 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     super.dispose();
   }
 
+  /// 画面の時刻表示を1秒ごとに描き直すだけのタイマー。
+  /// 経過時間そのものは [_durationSeconds] が実時間から計算するため、
+  /// このタイマーが間引かれても記録される時間はずれない。
   void _restartDurationTicker() {
     _timer?.cancel();
     if (!_hasStarted || _isPaused) return;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _durationSeconds += 1);
+      if (!mounted) return;
+      setState(() {});
     });
   }
 
@@ -121,16 +166,56 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     return true;
   }
 
+  /// 画面を消したりアプリを切り替えたりしても計測が止まらないよう、
+  /// プラットフォームごとの設定を組み立てる。
+  ///
+  /// Android: 位置ストリームの購読中だけフォアグラウンドサービスを動かす。
+  /// 常駐通知が出るかわりに、画面消灯中もOSにプロセスを殺されずに測位が続く。
+  /// このサービスはユーザーが「スタート」を押した時点＝アプリが前面にある
+  /// 状態から開始するため、ACCESS_BACKGROUND_LOCATION は不要で、
+  /// Google Play のバックグラウンド位置情報の用途申請も発生しない。
+  ///
+  /// iOS: バックグラウンドでの位置更新を明示的に許可する。fitness を指定すると
+  /// OSがランニング用途として扱い、停止時の自動一時停止も無効化しておく。
+  LocationSettings _buildLocationSettings() {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: _distanceFilterMeters,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'KOKUDO で計測中',
+          notificationText: '画面を消しても距離を記録し続けます',
+          notificationChannelName: 'ランニング計測',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
+      return AppleSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: _distanceFilterMeters,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
+      );
+    }
+    return const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: _distanceFilterMeters,
+    );
+  }
+
   /// GPSの位置ストリームの購読を開始する。再開時に基準位置をリセットし、
   /// 一時停止していた間の移動分を距離に含めないようにする。
   void _startPositionStream() {
     _positionSub?.cancel();
     _lastPosition = null;
     _positionSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
-      ),
+      locationSettings: _buildLocationSettings(),
     ).listen(_handlePosition, onError: (Object error) {
       if (!mounted) return;
       setState(() => _locationError = '位置情報の取得に失敗しました: $error');
@@ -161,6 +246,9 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     setState(() {
       _hasStarted = true;
       _isPaused = false;
+      _startedAt = DateTime.now();
+      _pausedTotal = Duration.zero;
+      _pausedAt = null;
     });
     _startPositionStream();
     _restartDurationTicker();
@@ -170,10 +258,22 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     if (_isPaused) {
       final ready = await _ensureLocationReady();
       if (!ready) return;
-      setState(() => _isPaused = false);
+      // 一時停止していた分を累計に足し込んでから再開する。
+      final pausedAt = _pausedAt;
+      setState(() {
+        if (pausedAt != null) {
+          _pausedTotal += DateTime.now().difference(pausedAt);
+        }
+        _pausedAt = null;
+        _isPaused = false;
+      });
       _startPositionStream();
     } else {
-      setState(() => _isPaused = true);
+      setState(() {
+        _pausedAt = DateTime.now();
+        _isPaused = true;
+      });
+      // 購読を止めるとフォアグラウンドサービスも停止し、常駐通知も消える。
       _positionSub?.cancel();
       _positionSub = null;
     }
@@ -194,12 +294,18 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     _finishing = true;
 
     _timer?.cancel();
+    // 購読を止めるとフォアグラウンドサービスも終了し、常駐通知が消える。
     _positionSub?.cancel();
+    _positionSub = null;
+
     final routeId = _routeId;
+    // 経過時間は実時間から計算しているため、読むたびに値が変わる。
+    // 記録と画面表示で1秒ずれないよう、ここで一度だけ確定させる。
+    final durationSeconds = _durationSeconds;
     final caloriesBurned = (_distanceKm * 62).round();
     final result = RunResult(
       distanceKm: _distanceKm,
-      durationSeconds: _durationSeconds,
+      durationSeconds: durationSeconds,
       caloriesBurned: caloriesBurned,
     );
 
@@ -207,7 +313,7 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
       await _repo.recordRun(
         routeId: routeId,
         distanceKm: _distanceKm,
-        durationSeconds: _durationSeconds,
+        durationSeconds: durationSeconds,
         caloriesBurned: caloriesBurned,
       );
     }

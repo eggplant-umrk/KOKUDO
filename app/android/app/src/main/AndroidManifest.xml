@@ -2,6 +2,18 @@
     <!-- ランニング計測画面のGPS実測（geolocator）に必要な位置情報権限 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- 計測中に画面を消してもGPSの取得が止まらないようにするための
+         フォアグラウンドサービス。geolocator が位置ストリームの購読中だけ
+         起動し、常駐通知を表示する。Android 14 (API 34) 以降は
+         FOREGROUND_SERVICE_LOCATION の宣言が必須。
+         サービスはユーザーが「スタート」を押した時点＝アプリが前面にある
+         状態から開始するため ACCESS_BACKGROUND_LOCATION は不要
+         （Google Play のバックグラウンド位置情報の用途申請も発生しない）。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- 画面消灯中もCPUを起こしたまま測位を続けるため
+         （ForegroundNotificationConfig.enableWakeLock = true に対応）。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- 走破・地図コレクション画面の地図タイル取得（maplibre_gl）、Firestore等に必要 -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
