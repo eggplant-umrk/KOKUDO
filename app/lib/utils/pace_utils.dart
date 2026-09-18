@@ -74,15 +74,41 @@ String formatKm(double value, {int digits = 1}) =>
 
 String formatDate(DateTime date) => '${date.year}年${date.month}月${date.day}日';
 
+/// 1時間未満は MM:SS、1時間以上は H:MM:SS で表示する。
+/// 長距離路線では1時間を超えるランも普通にあるため、分だけで表示すると
+/// 「125:30」のように読み取りづらい値になってしまう。
 String formatDurationClock(int totalSeconds) {
-  final m = totalSeconds ~/ 60;
+  final h = totalSeconds ~/ 3600;
+  final m = (totalSeconds % 3600) ~/ 60;
   final s = totalSeconds % 60;
-  return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  final mm = m.toString().padLeft(2, '0');
+  final ss = s.toString().padLeft(2, '0');
+  return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
 }
 
+/// ペースが意味を持たない状態を表す表示。
+const String _pacePlaceholder = "--'--\"";
+
+/// ペースを算出できたとみなす最小距離（km）。
+/// これ未満ではGPSの測位誤差が支配的で、計算しても実態を表さない。
+const double _minPaceDistanceKm = 0.1;
+
+/// 表示する上限のペース（秒/km）。60分/kmを超える値は、
+/// 歩行ですらない「ほぼ止まっている」状態なので数値を出さない。
+const double _maxPaceSecPerKm = 3600;
+
+/// 1kmあたりの所要時間を m'ss" 形式で返す。
+///
+/// 計測開始直後は距離がほぼ0のため、割り算の結果が「253'20"」のような
+/// 実態を伴わない巨大な値になる。そのまま出すと不具合に見えるので、
+/// 十分な距離が貯まるまではプレースホルダーを返す。
 String formatPace(int totalSeconds, double distanceKm) {
-  if (distanceKm <= 0) return "--'--\"";
+  if (distanceKm < _minPaceDistanceKm || totalSeconds <= 0) {
+    return _pacePlaceholder;
+  }
   final secPerKm = totalSeconds / distanceKm;
+  if (secPerKm > _maxPaceSecPerKm) return _pacePlaceholder;
+
   var m = secPerKm ~/ 60;
   var s = (secPerKm % 60).round();
   // 60.0秒ちょうどに丸められた場合は繰り上げて分側に加算する
