@@ -227,19 +227,19 @@ const String _fontName = 'NotoSansCJKjp-Regular';
 
 /// 地図の配色。
 /// アプリ上部のグラデーション(AppColors.bgAppTop)の明るい空色に合わせ、
-/// 「明るいクリーム色の陸に鮮やかな空色の海」を基調にしたさわやかな配色にする。
+/// 「パステルイエローの陸に鮮やかな空色の海」を基調にしたポップな配色にする。
 /// 陸は AppColors.mapLand(#F4EFE2)だと灰色が混ざってくすんで見えるため、
-/// 灰色を混ぜない黄み寄りの白にしている。道路・県境・鉄道は陸と同系の暖色で
-/// 一段ずつ濃くしただけにし、路線やマーカーより目立たないようにする。
+/// 灰色を混ぜないはっきりした薄い黄色にしている。道路・県境・鉄道は陸と同系の
+/// 黄色で一段ずつ濃くしただけにし、路線やマーカーより目立たないようにする。
 /// (MapLibre のスタイルJSONは文字列で渡すため16進文字列で持つ。)
 const String _seaHexColor = '#B9E6FF'; // 海: bgAppTop(#CDF1FF)より一段濃い空色
-const String _landHexColor = '#FFF8E3'; // 陸: 明るいクリーム色(灰色を混ぜない、黄み寄りの白)
+const String _landHexColor = '#FFF3B8'; // 陸: パステルイエロー(灰色を混ぜない、はっきり黄色寄り)
 const String _coastHexColor = '#7CCBF0'; // 海岸線: accentBlue系の明るい水色
-const String _boundaryHexColor = '#E6D9B6'; // 県境(破線): クリームより一段濃い暖色
+const String _boundaryHexColor = '#E9D88C'; // 県境(破線): 陸より一段濃い黄色
 const String _riverHexColor = '#A4DCF7'; // 川
-const String _roadHexColor = '#EFE5C9'; // 一般道: 陸より一段濃いだけの薄い暖色
-const String _motorwayHexColor = '#E2D3AC'; // 高速道路: 一般道より少し濃く
-const String _railHexColor = '#DDD4BE'; // 鉄道(破線)
+const String _roadHexColor = '#F1E29C'; // 一般道: 陸より一段濃いだけの薄い黄色
+const String _motorwayHexColor = '#E4CF7A'; // 高速道路: 一般道より少し濃く
+const String _railHexColor = '#E0D5A0'; // 鉄道(破線)
 const String _labelHexColor = '#5C6F7D'; // 地名: AppColors.textSecondary
 
 /// 陸地の輪郭を描く層のID。タイル由来の最初の層(陸の面)より下に差し込むために使う。
