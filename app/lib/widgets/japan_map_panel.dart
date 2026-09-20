@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -295,6 +295,17 @@ const Map<RegionKey, String> _regionShortLabel = {
 /// 国道標識マーカーの表示サイズ(論理px = dp)。
 const double _signSize = 40;
 
+/// 標識の形を画像の端から内側に寄せる量。白い縁取り(幅1.6)が画像の端で
+/// 切れないようにするため。
+const double _signInset = 0.8;
+const double _signBodySize = _signSize - _signInset * 2;
+
+/// 標識の尖った下端が画像の下端からどれだけ上にあるか。
+/// [routeSignPath] の最下点は高さ h の (h - 0.9r)、r = w*0.12 の位置にある。
+/// iconAnchor=bottom は画像の下端を座標に合わせるので、この分だけ下にずらして
+/// 先端がちょうど起点を指すようにする([_ensureOverlayLayers] の iconOffset)。
+const double _signTipGap = _signSize - (_signInset + _signBodySize * (1 - 0.9 * 0.12));
+
 /// 起点マーカーの国道標識を描き始めるズームレベル。地名ラベル(スタイルの
 /// place-label 層の minzoom)もこの値に揃えてあり、地名が読める程度に寄ると
 /// 同時に標識も立つ。これより引いた表示では起点の小さな色付きの丸だけが見える。
@@ -331,6 +342,10 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   final Set<String> _registeredSignImages = {};
   bool _overlayLayersReady = false;
 
+  /// スタイルの読み込みが済んでいるか。済む前に addCircle などを呼ぶと
+  /// プラグインが例外を投げるため、[didUpdateWidget] からの描き直しはこれで守る。
+  bool _styleLoaded = false;
+
   static const CameraPosition _initialCamera = CameraPosition(
     target: LatLng(36.5, 138.2),
     zoom: 3.9,
@@ -339,7 +354,9 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   @override
   void didUpdateWidget(covariant JapanMapPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_controller != null &&
+    // スタイル読み込み前の変更は、読み込み完了時の _onStyleLoaded が
+    // そのときの widget の状態で描くので、ここでは何もしなくてよい。
+    if (_styleLoaded &&
         (oldWidget.routes != widget.routes ||
             oldWidget.activeRegion != widget.activeRegion)) {
       _syncMarkers();
@@ -363,6 +380,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     if (controller == null) return;
     _registeredSignImages.clear();
     _overlayLayersReady = false;
+    _styleLoaded = true;
     await _addLandSilhouette(controller);
     await _ensureOverlayLayers(controller);
     await _syncMarkers();
@@ -372,6 +390,18 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   /// 中身は [_syncMarkersNow] が setGeoJsonSource で入れ替える。
   Future<void> _ensureOverlayLayers(MapLibreMapController controller) async {
     if (_overlayLayersReady) return;
+    // 前回の作成が途中で失敗していると片方だけ残っていることがあるため、
+    // 先に消してから作り直す(無ければ何も起きない)。
+    for (final layerId in [_regionLabelLayerId, _routeSignLayerId]) {
+      try {
+        await controller.removeLayer(layerId);
+      } catch (_) {}
+    }
+    for (final sourceId in [_regionLabelSourceId, _routeSignSourceId]) {
+      try {
+        await controller.removeSource(sourceId);
+      } catch (_) {}
+    }
     try {
       await controller.addGeoJsonSource(_regionLabelSourceId, _emptyFeatureCollection());
       await controller.addSymbolLayer(
@@ -399,6 +429,8 @@ class JapanMapPanelState extends State<JapanMapPanel> {
           iconImage: [Expressions.get, 'icon'],
           iconSize: [Expressions.get, 'size'],
           iconAnchor: 'bottom',
+          // 尖った先端を起点に合わせる(単位はpx×iconSize、下が正)。
+          iconOffset: [0, _signTipGap],
           iconOpacity: 0.97,
           // 標識同士が重なるときは MapLibre に間引かせる(寄れば両方出る)。
           iconAllowOverlap: false,
@@ -432,11 +464,12 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   /// 見た目を揃える。文字は「国道」と番号の2行。
   ///
   /// 解像度の扱い: 画像は端末の画面密度([devicePixelRatio])倍の物理pxで描く。
-  /// Android 側のプラグインは渡されたビットマップに端末密度をそのまま
-  /// pixelRatio として付けるため、iconSize=1 でちょうど [_signSize] dp の
-  /// 鮮明な標識になる。iOS 側は密度を付けずに登録する(scale=1)ため、
-  /// 表示時に 1/devicePixelRatio に縮める必要がある([_signIconSize])。
-  Future<String> _ensureSignImage(
+  /// Android/iOS のプラグインは渡した画像に端末の画面密度を pixelRatio として
+  /// 付けるため、iconSize=1 でちょうど [_signSize] dp の鮮明な標識になる。
+  /// Web だけは密度1で登録されるので表示時に縮める([_signIconSize])。
+  ///
+  /// 登録できなかった場合(破棄後など)は null を返す。
+  Future<String?> _ensureSignImage(
     MapLibreMapController controller,
     int routeNumber,
     RouteStatus status,
@@ -449,7 +482,9 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     final canvas = Canvas(recorder);
     canvas.scale(devicePixelRatio);
     const size = Size(_signSize, _signSize);
-    final path = routeSignPath(size);
+    // 縁取りが画像の端で切れないよう、形は少し内側に描く。
+    final path = routeSignPath(const Size(_signBodySize, _signBodySize))
+        .shift(const Offset(_signInset, _signInset));
 
     // 本体(ステータス色)と、地図の上で縁を立たせるための白い縁取り。
     canvas.drawPath(path, Paint()..color = _statusColor[status]!);
@@ -478,6 +513,8 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     final top = (size.height - text.height) / 2 * (1 - 0.45);
     text.paint(canvas, Offset((size.width - text.width) / 2, top));
 
+    text.dispose();
+
     final picture = recorder.endRecording();
     final image = await picture.toImage(
       (size.width * devicePixelRatio).round(),
@@ -485,9 +522,16 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     );
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     image.dispose();
-    if (bytes == null) return name;
+    picture.dispose();
+    if (bytes == null) return null;
 
-    await controller.addImage(name, bytes.buffer.asUint8List());
+    // 描画中に破棄されていたら登録しない(破棄後の addImage は例外になる)。
+    if (!mounted) return null;
+    try {
+      await controller.addImage(name, bytes.buffer.asUint8List());
+    } catch (_) {
+      return null;
+    }
     _registeredSignImages.add(name);
     return name;
   }
@@ -509,11 +553,14 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     }
     try {
       await controller.addGeoJsonSource(_landSourceId, geojson);
+      // enableInteraction を切らないと、陸地の上をタップしたときにこの層が
+      // タップを受け取ってしまい、onMapClick(全画面表示)が呼ばれなくなる。
       await controller.addFillLayer(
         _landSourceId,
         _landFillLayerId,
         const FillLayerProperties(fillColor: _landHexColor, fillOpacity: _silhouetteOpacity),
         belowLayerId: _landTileLayerId,
+        enableInteraction: false,
       );
       await controller.addLineLayer(
         _landSourceId,
@@ -524,6 +571,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
           lineOpacity: _silhouetteOpacity,
         ),
         belowLayerId: _landTileLayerId,
+        enableInteraction: false,
       );
     } catch (_) {
       // スタイルの再読み込みなどで既に追加済みの場合は無視する。
@@ -539,8 +587,10 @@ class JapanMapPanelState extends State<JapanMapPanel> {
 
   /// 標識画像を表示するときの倍率。[_ensureSignImage] の解像度の扱いを参照。
   double _signIconSize(double devicePixelRatio) {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) return 1.0;
-    return 1.0 / devicePixelRatio;
+    // Android/iOS のプラグインは登録時に画面密度を付けるので等倍でよい。
+    // Web だけは密度1で登録されるため、描画した倍率のぶん縮める。
+    if (kIsWeb) return 1.0 / devicePixelRatio;
+    return 1.0;
   }
 
   /// 現在の路線リスト・ステータス・選択中の地方に合わせてマーカー・路線を描き直す。
@@ -581,7 +631,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     }
     await _clearRouteLines(controller);
 
-    // マーカーの下に敷く形で、各路線の実際の道なりを先に描画する。
+    // 各路線の実際の道なりを描画する(丸マーカーの層の下に差し込む)。
     await _syncRouteLines(controller);
 
     // 先に8地方の常時タップ可能なマーカー（路線が無くても選択できる）を描く。
@@ -634,10 +684,13 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       _startCircleByRouteId[route.routeId] = startCircle;
 
       final imageName = await _ensureSignImage(controller, route.routeNumber, status, dpr);
-      signFeatures.add(_pointFeature(start, {
-        'icon': imageName,
-        'size': (selected ? 1.15 : 1.0) * _signIconSize(dpr),
-      }));
+      if (!mounted) return;
+      if (imageName != null) {
+        signFeatures.add(_pointFeature(start, {
+          'icon': imageName,
+          'size': (selected ? 1.15 : 1.0) * _signIconSize(dpr),
+        }));
+      }
 
       final goalCircle = await controller.addCircle(
         CircleOptions(
@@ -653,8 +706,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       _goalCircleByRouteId[route.routeId] = goalCircle;
     }
 
-    if (!mounted) return;
-    if (!_overlayLayersReady) await _ensureOverlayLayers(controller);
+    if (!mounted || !_overlayLayersReady) return;
     try {
       await controller.setGeoJsonSource(
         _regionLabelSourceId,
@@ -753,8 +805,12 @@ class JapanMapPanelState extends State<JapanMapPanel> {
             lineCap: 'round',
             lineJoin: 'round',
           ),
-          // 地方ラベル・国道標識の下に入れる(路線の線が標識の上に被らないように)。
-          belowLayerId: _overlayLayersReady ? _regionLabelLayerId : null,
+          // 丸マーカー(アノテーション)の層の下に入れ、線が丸や標識に被らないようにする。
+          // 丸の層が取れない場合は地方ラベル層の下(=標識の下)に入れる。
+          belowLayerId: controller.circleManager?.layerIds.first ??
+              (_overlayLayersReady ? _regionLabelLayerId : null),
+          // タップ判定を付けると起点・終点の丸のタップを線が横取りしてしまう。
+          enableInteraction: false,
         );
         _lineSourceIds.add(sourceId);
         _lineLayerIds.add(layerId);
