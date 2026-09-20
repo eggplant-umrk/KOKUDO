@@ -408,8 +408,8 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       );
       _overlayLayersReady = true;
     } catch (_) {
-      // 既に存在する場合(スタイルの再読み込み直後など)は既存のものをそのまま使う。
-      _overlayLayersReady = true;
+      // 作れなかった場合は未作成のままにする。地方ラベル・標識は出ないが、
+      // 丸マーカーと路線の線は描けるので続行する(線の belowLayerId も付けない)。
     }
   }
 
@@ -588,6 +588,8 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     // 文字(地方名)はレイヤー側([_regionLabelLayerId])で描く。
     final regionLabelFeatures = <Map<String, dynamic>>[];
     for (final entry in _regionCenters.entries) {
+      // 全画面を閉じるなどで描画中に破棄されたら、以降の地図操作はやめる。
+      if (!mounted) return;
       final region = entry.key;
       final selected = widget.activeRegion == region;
       final circle = await controller.addCircle(
@@ -611,6 +613,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     // 終点(ゴール)=白地に色付きの太い縁取りの円。
     final signFeatures = <Map<String, dynamic>>[];
     for (final route in widget.routes) {
+      if (!mounted) return;
       final status = widget.statusOf(route.routeId);
       final selected = widget.activeRegion == route.region;
       final color = _statusHexColor[status];
@@ -650,6 +653,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       _goalCircleByRouteId[route.routeId] = goalCircle;
     }
 
+    if (!mounted) return;
     if (!_overlayLayersReady) await _ensureOverlayLayers(controller);
     try {
       await controller.setGeoJsonSource(
@@ -722,6 +726,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   /// 静かに省略する（他の路線やマーカー表示には影響させない）。
   Future<void> _syncRouteLines(MapLibreMapController controller) async {
     for (final route in widget.routes) {
+      if (!mounted) return;
       if (route.geojsonPath.isEmpty) continue;
 
       final Map<String, dynamic> geojson;
