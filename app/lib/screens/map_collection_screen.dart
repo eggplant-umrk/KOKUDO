@@ -6,8 +6,10 @@ import '../models/national_route.dart';
 import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
 import '../widgets/japan_map_panel.dart';
+import '../widgets/map_legend.dart';
 import '../widgets/route_card.dart';
 import '../widgets/stat_tile.dart';
+import 'map_fullscreen_screen.dart';
 
 class MapCollectionScreen extends StatefulWidget {
   const MapCollectionScreen({super.key});
@@ -176,6 +178,21 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
     );
   }
 
+  /// 地図を画面いっぱいに表示する。地方の選択は全画面側で変えてもこの画面に
+  /// 即時に反映される（[MapFullscreenScreen.onSelectRegion]）。
+  void _openFullscreenMap() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MapFullscreenScreen(
+          routes: _routes,
+          initialRegion: _region,
+          onSelectRegion: (region) => setState(() => _region = region),
+          statusOf: _statusOf,
+        ),
+      ),
+    );
+  }
+
   /// MapLibre GLによる実地図で地方ごとの位置・状況を確認できるパネル。
   Widget _buildMapPanel() {
     return ClipRRect(
@@ -186,49 +203,22 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           child: Column(
             children: [
-              JapanMapPanel(
-                routes: _routes,
-                activeRegion: _region,
-                onSelectRegion: (region) => setState(() => _region = region),
-                statusOf: _statusOf,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppColors.radiusSm),
+                child: JapanMapPanel(
+                  routes: _routes,
+                  activeRegion: _region,
+                  onSelectRegion: (region) => setState(() => _region = region),
+                  statusOf: _statusOf,
+                  onRequestFullscreen: _openFullscreenMap,
+                ),
               ),
               const SizedBox(height: 8),
-              _buildLegend(),
+              const MapLegend(),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildLegend() {
-    Widget dot(Color color, String label) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: const [BoxShadow(color: Colors.white, blurRadius: 0, spreadRadius: 1)],
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
-        ],
-      );
-    }
-
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 14,
-      children: [
-        dot(AppColors.routeInactive, '未走破'),
-        dot(AppColors.routeNeonBlue, '挑戦中'),
-        dot(AppColors.accentGold, '完走'),
-      ],
     );
   }
 
