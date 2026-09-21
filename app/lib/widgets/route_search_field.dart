@@ -28,7 +28,16 @@ class RouteSearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = this.controller;
-    final hasText = controller != null && controller.text.isNotEmpty;
+    if (controller == null) return _buildField(context, null, hasText: false);
+    // 文字の有無で「×」を出し分けるので、コントローラーの変化を自分で購読する
+    // (親の setState に頼らない)。
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) => _buildField(context, controller, hasText: value.text.isNotEmpty),
+    );
+  }
+
+  Widget _buildField(BuildContext context, TextEditingController? controller, {required bool hasText}) {
     return SizedBox(
       height: 38,
       child: TextField(
@@ -42,7 +51,7 @@ class RouteSearchField extends StatelessWidget {
           hintStyle: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
           prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textTertiary),
           prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-          suffixIcon: hasText
+          suffixIcon: hasText && controller != null
               ? IconButton(
                   onPressed: () {
                     controller.clear();
@@ -76,8 +85,12 @@ class RouteSearchField extends StatelessWidget {
 /// 空白（全角も可）で区切った語はすべて満たす必要がある（AND）。
 /// 各語は「路線番号の前方一致」「都道府県名の前方一致」「路線名・起点・終点の
 /// 部分一致」のどれかに当たれば一致とする。
+final RegExp _termSeparator = RegExp(r'[\s\u3000]+');
+final RegExp _fullWidthDigit = RegExp('[０-９]');
+final RegExp _digitsOnly = RegExp(r'^\d+$');
+
 bool routeMatchesQuery(NationalRoute route, String query) {
-  final terms = query.split(RegExp(r'[\s\u3000]+')).where((t) => t.isNotEmpty);
+  final terms = query.split(_termSeparator).where((t) => t.isNotEmpty);
   for (final term in terms) {
     if (!_matchesTerm(route, term)) return false;
   }
@@ -88,8 +101,8 @@ bool routeMatchesQuery(NationalRoute route, String query) {
 /// 「神奈川 1」→ ['神奈川県']、「16」→ []。地図を都道府県の範囲に寄せるときに使う。
 List<String> prefecturesInQuery(String query) {
   final result = <String>[];
-  for (final term in query.split(RegExp(r'[\s\u3000]+'))) {
-    if (term.isEmpty) continue;
+  for (final term in query.split(_termSeparator)) {
+    if (!_isPrefectureTerm(term)) continue;
     for (final pref in _prefectureNames) {
       if (pref.startsWith(term) && !result.contains(pref)) result.add(pref);
     }
@@ -97,22 +110,29 @@ List<String> prefecturesInQuery(String query) {
   return result;
 }
 
+/// 都道府県名の書き出しに当たる語か。1文字だと「山」で山形・山梨・山口に
+/// 当たるなど広すぎるので、2文字以上に限る(1文字は地名の部分一致で探す)。
+bool _isPrefectureTerm(String term) =>
+    term.length >= 2 && _prefectureNames.any((p) => p.startsWith(term));
+
 bool _matchesTerm(NationalRoute route, String term) {
   // 全角数字や「国道」「号」付きの入力も番号検索として扱う。
   final normalized = term
-      .replaceAllMapped(RegExp('[０-９]'), (m) => String.fromCharCode(m[0]!.codeUnitAt(0) - 0xFEE0))
+      .replaceAllMapped(_fullWidthDigit, (m) => String.fromCharCode(m[0]!.codeUnitAt(0) - 0xFEE0))
       .replaceAll('国道', '')
       .replaceAll('号', '')
       .trim();
-  if (RegExp(r'^\d+$').hasMatch(normalized)) {
+  if (_digitsOnly.hasMatch(normalized)) {
     return route.routeNumber.toString().startsWith(normalized);
   }
 
   // 都道府県: 「神奈川」「神奈川県」「東京」「京都」のどれでも当たるよう前方一致。
   // 語が都道府県名の書き出しに当たるときは都道府県だけで判定する
   // (「京都」で東京都中央区が起点の路線まで拾わないように)。
-  if (_prefectureNames.any((p) => p.startsWith(term))) {
-    return RouteCatalog.prefecturesOf(route.routeId).any((p) => p.startsWith(term));
+  // 路線に都道府県の情報が無い場合だけ、下の地名の部分一致に落とす。
+  if (_isPrefectureTerm(term)) {
+    final prefectures = RouteCatalog.prefecturesOf(route.routeId);
+    if (prefectures.isNotEmpty) return prefectures.any((p) => p.startsWith(term));
   }
 
   return route.name.contains(term) ||

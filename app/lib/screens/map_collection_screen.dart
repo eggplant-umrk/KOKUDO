@@ -60,7 +60,11 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
   void _setQuery(String query, {bool updateField = false}) {
     setState(() => _query = query);
     if (updateField && _queryController.text != query) {
-      _queryController.text = query;
+      // text= だけだとカーソル位置が消えるので、末尾に置き直す。
+      _queryController.value = TextEditingValue(
+        text: query,
+        selection: TextSelection.collapsed(offset: query.length),
+      );
     }
   }
 
@@ -142,8 +146,11 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
                         ),
                         const Spacer(),
                         // 検索中は地方の絞り込みを効かせないので、チップも出さない。
+                        // 幅の狭い端末で見出しと並べてもはみ出さないよう Flexible に。
                         if (_region != null && !_searching)
-                          _buildChip('${regionLabel[_region]}のみ表示 ×', onTap: () => setState(() => _region = null)),
+                          Flexible(
+                            child: _buildChip('${regionLabel[_region]}のみ表示 ×', onTap: () => setState(() => _region = null)),
+                          ),
                       ],
                     ),
                   ),
@@ -232,6 +239,8 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
         ),
         child: Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.routeSignBlue),
         ),
       ),

@@ -86,17 +86,21 @@ class _MapFullscreenScreenState extends State<MapFullscreenScreen> {
                   ),
                   const Spacer(),
                   if (_region != null && !searching)
-                    GestureDetector(
-                      onTap: () => _selectRegion(null),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.bgSurfaceRaised,
-                          borderRadius: BorderRadius.circular(AppColors.radiusFull),
-                        ),
-                        child: Text(
-                          '${regionLabel[_region]}のみ表示 ×',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.routeSignBlue),
+                    Flexible(
+                      child: GestureDetector(
+                        onTap: () => _selectRegion(null),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: AppColors.bgSurfaceRaised,
+                            borderRadius: BorderRadius.circular(AppColors.radiusFull),
+                          ),
+                          child: Text(
+                            '${regionLabel[_region]}のみ表示 ×',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.routeSignBlue),
+                          ),
                         ),
                       ),
                     ),

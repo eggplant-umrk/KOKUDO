@@ -34,11 +34,18 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
   Map<String, UserRouteProgress> _progressByRoute = const {};
   String? _activeRouteId;
   String _query = '';
+  final TextEditingController _queryController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -114,7 +121,10 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                    child: RouteSearchField(onChanged: (q) => setState(() => _query = q)),
+                    child: RouteSearchField(
+                      controller: _queryController,
+                      onChanged: (q) => setState(() => _query = q),
+                    ),
                   ),
                   Expanded(child: _buildRouteList(_filteredRoutes)),
                 ],
@@ -148,14 +158,16 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
     if (status == RouteStatus.inProgress && progress != null) {
       meta += ' ・ ${progress.currentDistanceKm.toStringAsFixed(1)}km地点';
     }
+    // 都道府県(検索で使う情報)を先に、起点→終点はその下に。長い路線は
+    // 起点→終点が折り返すので、行数に余裕を持たせている。
+    final prefectures = RouteCatalog.prefecturesOf(route.routeId);
+    if (prefectures.isNotEmpty) {
+      meta += '\n${prefectures.join('・')}';
+    }
     final startLabel = route.startPoint.label;
     final endLabel = route.endPoint.label;
     if (startLabel != null && endLabel != null) {
       meta += '\n$startLabel → $endLabel';
-    }
-    final prefectures = RouteCatalog.prefecturesOf(route.routeId);
-    if (prefectures.isNotEmpty) {
-      meta += '\n${prefectures.join('・')}';
     }
 
     return Opacity(
@@ -224,7 +236,7 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
                       const SizedBox(height: 2),
                       Text(
                         meta,
-                        maxLines: 3,
+                        maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
                       ),

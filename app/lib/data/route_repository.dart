@@ -64,8 +64,14 @@ class RouteRepository {
 
   /// 路線マスターをDBに同期し、進捗・ログが空ならデモデータをシードする。
   /// 複数箇所から同時に呼ばれても二重に走らないよう、Futureをキャッシュする。
+  /// 失敗したときはキャッシュを捨てて、次の呼び出しでやり直せるようにする
+  /// (失敗したFutureを持ち続けると、以降のすべての読み込みが同じエラーになる)。
   Future<void> ensureSeeded() {
-    return _seedFuture ??= _seed();
+    final future = _seedFuture ??= _seed();
+    return future.catchError((Object error, StackTrace stackTrace) {
+      if (identical(_seedFuture, future)) _seedFuture = null;
+      Error.throwWithStackTrace(error, stackTrace);
+    });
   }
 
   @visibleForTesting
@@ -85,33 +91,72 @@ class RouteRepository {
   /// [RouteCatalog](同梱JSON)の内容を national_routes / route_checkpoints に流し込む。
   ///
   /// 同梱JSONの version がDBに記録した版と同じで、路線も入っていれば何もしない。
-  /// 版が上がっていれば(距離を実延長に差し替えたときなど)全路線を上書きする。
+  /// 版が上がっていれば(距離を実延長に差し替えたときなど)全路線を入れ直す。
   /// 路線IDは変えないので、user_route_progress / run_logs はそのまま生きる。
   /// 旧版(先行6路線をmock_dataからシードした端末)からの移行もこの処理で済む。
+  /// 完走済みの進捗は新しい総距離に合わせて距離を揃える(距離が変わって
+  /// 「完走なのに93%」にならないように)。
+  ///
+  /// JSONが読めない場合、路線が既にDBにあればそのまま続行し、無ければ例外にする
+  /// (路線ゼロで起動しても何もできないため)。
   Future<void> _syncRouteCatalog(Database db) async {
-    final version = await RouteCatalog.version();
-    final storedVersion = int.tryParse(await _getSetting(_routeCatalogVersionSettingKey) ?? '');
     final count = Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM national_routes'),
         ) ??
         0;
-    if (storedVersion == version && count > 0) return;
+    final int version;
+    final List<NationalRoute> routes;
+    try {
+      version = await RouteCatalog.version();
+      final storedVersion = int.tryParse(await _getSetting(_routeCatalogVersionSettingKey) ?? '');
+      if (storedVersion == version && count > 0) return;
+      routes = await RouteCatalog.load();
+    } catch (_) {
+      if (count > 0) return;
+      rethrow;
+    }
+    if (routes.isEmpty) {
+      if (count > 0) return;
+      throw StateError('路線マスター(${RouteCatalog.assetPath})が空です');
+    }
 
-    final routes = await RouteCatalog.load();
-    final batch = db.batch();
-    batch.delete('route_checkpoints');
-    for (final route in routes) {
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      // 版が変わったら全部入れ直す(JSONから消えた路線を残さないため)。
+      batch.delete('route_checkpoints');
+      batch.delete('national_routes');
+      for (final route in routes) {
+        batch.insert('national_routes', route.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+        for (final checkpoint in route.checkpoints) {
+          batch.insert('route_checkpoints', checkpoint.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+      // 完走済みは新しい総距離に、未完走は総距離を超えないように揃える。
+      batch.rawUpdate('''
+        UPDATE user_route_progress
+        SET current_distance_km = (
+          SELECT total_distance_km FROM national_routes n WHERE n.route_id = user_route_progress.route_id
+        )
+        WHERE is_completed = 1
+          AND route_id IN (SELECT route_id FROM national_routes)
+      ''');
+      batch.rawUpdate('''
+        UPDATE user_route_progress
+        SET current_distance_km = (
+          SELECT total_distance_km FROM national_routes n WHERE n.route_id = user_route_progress.route_id
+        )
+        WHERE is_completed = 0
+          AND current_distance_km > (
+            SELECT total_distance_km FROM national_routes n WHERE n.route_id = user_route_progress.route_id
+          )
+      ''');
       batch.insert(
-        'national_routes',
-        route.toMap(),
+        'app_settings',
+        {'key': _routeCatalogVersionSettingKey, 'value': '$version'},
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      for (final checkpoint in route.checkpoints) {
-        batch.insert('route_checkpoints', checkpoint.toMap());
-      }
-    }
-    await batch.commit(noResult: true);
-    await _setSetting(_routeCatalogVersionSettingKey, '$version');
+      await batch.commit(noResult: true);
+    });
   }
 
   /// 進捗も走行ログも1件も無い(=初回起動)ときだけ、mock_data.dart のデモ用の

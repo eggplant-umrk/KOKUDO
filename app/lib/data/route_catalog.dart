@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../models/national_route.dart';
@@ -54,11 +55,19 @@ class RouteCatalog {
     final raw = await rootBundle.loadString(assetPath);
     final doc = jsonDecode(raw) as Map<String, dynamic>;
     _version = (doc['version'] as num?)?.toInt() ?? 1;
-    final routes = (doc['routes'] as List)
-        .cast<Map<String, dynamic>>()
-        .map(_fromJson)
-        .toList()
-      ..sort((a, b) => a.routeNumber.compareTo(b.routeNumber));
+    final routes = <NationalRoute>[];
+    for (final item in (doc['routes'] as List? ?? const [])) {
+      // 1路線の不備で全路線が読めなくなるより、その路線だけ飛ばす。
+      try {
+        routes.add(_fromJson(item as Map<String, dynamic>));
+      } catch (e) {
+        assert(() {
+          debugPrint('RouteCatalog: 路線を読み飛ばしました: $e');
+          return true;
+        }());
+      }
+    }
+    routes.sort((a, b) => a.routeNumber.compareTo(b.routeNumber));
     _cache = routes;
     return routes;
   }
@@ -100,9 +109,9 @@ class RouteCatalog {
         .toList();
 
     final difficultyName = j['difficulty'] as String?;
-    final difficulty = difficultyName != null
-        ? RouteDifficulty.values.byName(difficultyName)
-        : difficultyForDistance(totalKm);
+    final difficulty = RouteDifficulty.values.asNameMap()[difficultyName] ?? difficultyForDistance(totalKm);
+    final startLabel = start['label'] as String?;
+    final endLabel = end['label'] as String?;
 
     return NationalRoute(
       routeId: routeId,
@@ -111,19 +120,19 @@ class RouteCatalog {
       startPoint: RoutePoint(
         lat: (start['lat'] as num).toDouble(),
         lng: (start['lng'] as num).toDouble(),
-        label: start['label'] as String?,
+        label: startLabel,
       ),
       endPoint: RoutePoint(
         lat: (end['lat'] as num).toDouble(),
         lng: (end['lng'] as num).toDouble(),
-        label: end['label'] as String?,
+        label: endLabel,
       ),
       totalDistanceKm: totalKm,
       geojsonPath: (j['geojson_path'] as String?) ?? '',
       region: RegionKey.values.byName(j['region'] as String),
       difficulty: difficulty,
       recommendReason: (j['recommend_reason'] as String?) ??
-          _defaultRecommendReason(start['label'] as String, end['label'] as String, totalKm, difficulty),
+          _defaultRecommendReason(startLabel ?? '起点', endLabel ?? '終点', totalKm, difficulty),
       checkpoints: checkpoints,
     );
   }
