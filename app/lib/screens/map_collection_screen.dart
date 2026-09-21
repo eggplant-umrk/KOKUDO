@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart' as mock;
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/user_route_progress.dart';
@@ -8,6 +7,7 @@ import '../theme/app_colors.dart';
 import '../widgets/japan_map_panel.dart';
 import '../widgets/map_legend.dart';
 import '../widgets/route_card.dart';
+import '../widgets/route_search_field.dart';
 import '../widgets/stat_tile.dart';
 import 'map_fullscreen_screen.dart';
 
@@ -31,6 +31,11 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
   RegionKey? _region;
   RouteStatus? _status;
 
+  /// 路線の検索語。地図パネルの上の検索欄で入力する。全画面地図
+  /// ([MapFullscreenScreen])にも検索欄があり、どちらで変えてももう一方に反映する。
+  String _query = '';
+  final TextEditingController _queryController = TextEditingController();
+
   bool _loading = true;
   List<NationalRoute> _routes = const [];
   Map<String, UserRouteProgress> _progressByRoute = const {};
@@ -45,15 +50,28 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
+
+  /// 検索語を変える。全画面地図から変えられたときは検索欄の文字も揃える。
+  void _setQuery(String query, {bool updateField = false}) {
+    setState(() => _query = query);
+    if (updateField && _queryController.text != query) {
+      _queryController.text = query;
+    }
+  }
+
   Future<void> _load() async {
     final routes = await _repo.getRoutes();
-    final progressByRoute = <String, UserRouteProgress>{};
-    final statusByRoute = <String, RouteStatus>{};
-    for (final route in routes) {
-      final progress = await _repo.getProgress(route.routeId);
-      if (progress != null) progressByRoute[route.routeId] = progress;
-      statusByRoute[route.routeId] = await _repo.routeStatusOf(route.routeId);
-    }
+    // 459路線ぶんを1路線ずつ問い合わせると起動が遅くなるため、進捗はまとめて取る。
+    final progressByRoute = await _repo.getProgressByRoute();
+    final statusByRoute = {
+      for (final route in routes)
+        route.routeId: RouteRepository.statusOfProgress(progressByRoute[route.routeId]),
+    };
     final completedCount = await _repo.completedRouteCount();
     final cumulativeKm = await _repo.cumulativeDistanceKm();
     final coverage = await _repo.coverageRatio();
@@ -72,11 +90,16 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
 
   RouteStatus _statusOf(String routeId) => _statusByRoute[routeId] ?? RouteStatus.notStarted;
 
+  bool get _searching => _query.trim().isNotEmpty;
+
+  /// 一覧に出す路線。検索中は地図と同じく地方の絞り込みは効かせない
+  /// (「神奈川」で探しているのに関東以外が消える、という混乱を避ける)。
+  /// ステータスのタブは検索中も効く。
   List<NationalRoute> get _filteredRoutes {
     return _routes.where((r) {
-      final regionOk = _region == null || r.region == _region;
+      final regionOk = _searching || _region == null || r.region == _region;
       final statusOk = _status == null || _statusOf(r.routeId) == _status;
-      return regionOk && statusOk;
+      return regionOk && statusOk && routeMatchesQuery(r, _query);
     }).toList();
   }
 
@@ -95,91 +118,129 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
       color: AppColors.bgSurface,
       // 注: ノッチ／ステータスバーの回避は常に画面最上部にあるdev-navが
       // 既に確保しているため、ここではボトムのみ対応する。
+      //
+      // 画面全体を1つのスクロールにしている(見出し・統計・検索欄・地図・タブも
+      // 一覧と一緒にスクロールする)。検索欄でキーボードが出ると縦が足りなく
+      // なるが、スクロールできれば検索欄と地図を並べて見られるため。
+      // 地図の上でのドラッグは地図側が受け取る(JapanMapPanel 参照)ので、
+      // スクロールは地図以外の場所で行う。
       child: SafeArea(
         top: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Row(
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    '走破・地図コレクション',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
-                  ),
-                  const Spacer(),
-                  if (_region != null)
-                    GestureDetector(
-                      onTap: () => setState(() => _region = null),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.bgSurfaceRaised,
-                          borderRadius: BorderRadius.circular(AppColors.radiusFull),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                    child: Row(
+                      children: [
+                        const Text(
+                          '走破・地図コレクション',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
                         ),
-                        child: Text(
-                          '${regionLabel[_region]}のみ表示 ×',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.routeSignBlue),
-                        ),
-                      ),
+                        const Spacer(),
+                        // 検索中は地方の絞り込みを効かせないので、チップも出さない。
+                        if (_region != null && !_searching)
+                          _buildChip('${regionLabel[_region]}のみ表示 ×', onTap: () => setState(() => _region = null)),
+                      ],
                     ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: StatTile(
+                            label: '制覇路線数',
+                            value: '$_completedCount / ${_routes.length}',
+                            valueFontSize: 17,
+                            centered: true,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: StatTile(
+                            label: '累計走行距離',
+                            value: '${_cumulativeKm.toStringAsFixed(1)}km',
+                            valueFontSize: 17,
+                            centered: true,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: StatTile(
+                            label: 'カバー率',
+                            value: '${(_coverage * 100).toStringAsFixed(2)}%',
+                            valueFontSize: 17,
+                            centered: true,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: RouteSearchField(
+                            controller: _queryController,
+                            onChanged: _setQuery,
+                          ),
+                        ),
+                        if (_searching) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '${filtered.length}路線',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                    child: _buildMapPanel(),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                    child: _buildStatusTabs(),
+                  ),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: StatTile(
-                      label: '制覇路線数',
-                      value: '$_completedCount / ${mock.nationalRouteCount}',
-                      valueFontSize: 17,
-                      centered: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: StatTile(
-                      label: '累計走行距離',
-                      value: '${_cumulativeKm.toStringAsFixed(1)}km',
-                      valueFontSize: 17,
-                      centered: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: StatTile(
-                      label: 'カバー率',
-                      value: '${(_coverage * 100).toStringAsFixed(2)}%',
-                      valueFontSize: 17,
-                      centered: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: _buildMapPanel(),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-              child: _buildStatusTabs(),
-            ),
-            Expanded(child: _buildRouteList(filtered)),
+            _buildRouteList(filtered),
           ],
         ),
       ),
     );
   }
 
-  /// 地図を画面いっぱいに表示する。地方の選択は全画面側で変えてもこの画面に
-  /// 即時に反映される（[MapFullscreenScreen.onSelectRegion]）。
+  Widget _buildChip(String label, {required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppColors.bgSurfaceRaised,
+          borderRadius: BorderRadius.circular(AppColors.radiusFull),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.routeSignBlue),
+        ),
+      ),
+    );
+  }
+
+  /// 地図を画面いっぱいに表示する。地方の選択と検索語は全画面側で変えても
+  /// この画面に即時に反映される（[MapFullscreenScreen.onSelectRegion] /
+  /// [MapFullscreenScreen.onQueryChanged]）。
   void _openFullscreenMap() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -188,6 +249,8 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
           initialRegion: _region,
           onSelectRegion: (region) => setState(() => _region = region),
           statusOf: _statusOf,
+          initialQuery: _query,
+          onQueryChanged: (query) => _setQuery(query, updateField: true),
         ),
       ),
     );
@@ -211,6 +274,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
                   onSelectRegion: (region) => setState(() => _region = region),
                   statusOf: _statusOf,
                   onRequestFullscreen: _openFullscreenMap,
+                  searchQuery: _query,
                 ),
               ),
               const SizedBox(height: 8),
@@ -260,20 +324,28 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
     );
   }
 
+  /// 一覧部分(スライバー)。[CustomScrollView] の中で見出しや地図と一緒にスクロールする。
   Widget _buildRouteList(List<NationalRoute> filtered) {
     if (filtered.isEmpty) {
-      return const Center(
-        child: Text('該当する路線がありません', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+      return const SliverPadding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        sliver: SliverToBoxAdapter(
+          child: Center(
+            child: Text('該当する路線がありません', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+          ),
+        ),
       );
     }
-    return ListView.separated(
+    return SliverPadding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
-      itemCount: filtered.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 7),
-      itemBuilder: (context, index) {
-        final r = filtered[index];
-        return RouteCard(route: r, progress: _progressByRoute[r.routeId]);
-      },
+      sliver: SliverList.separated(
+        itemCount: filtered.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 7),
+        itemBuilder: (context, index) {
+          final r = filtered[index];
+          return RouteCard(route: r, progress: _progressByRoute[r.routeId]);
+        },
+      ),
     );
   }
 }

@@ -208,7 +208,7 @@ class _ConfettiPainter extends CustomPainter {
       final rotation = localProgress * piece.rotationSpeed * pi;
       final opacity = localProgress > 0.85 ? (1 - localProgress) / 0.15 : 1.0;
 
-      final paint = Paint()..color = piece.color.withOpacity(opacity.clamp(0.0, 1.0));
+      final paint = Paint()..color = piece.color.withValues(alpha: opacity.clamp(0.0, 1.0));
 
       canvas.save();
       canvas.translate(x, y);

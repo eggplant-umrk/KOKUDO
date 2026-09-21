@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../data/route_catalog.dart';
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/user_route_progress.dart';
 import '../theme/app_colors.dart';
+import '../widgets/route_search_field.dart';
 import '../widgets/route_sign_badge.dart';
 
-/// 「挑戦する国道を変更」画面。登録されている路線の一覧から、次に
-/// 挑戦する路線を選び直せる。既に進捗がある路線を選んだ場合はその
+/// 「挑戦する国道を変更」画面。全国道(459路線)の一覧から、次に
+/// 挑戦する路線を選び直せる。数が多いので路線番号・都道府県・地名で絞り込める。
+/// 既に進捗がある路線を選んだ場合はその
 /// 続きから、初めての路線を選んだ場合は0kmから開始する
 /// (RouteRepository.setActiveRoute)。切り替え後も、それまで挑戦していた
 /// 路線の進捗は消えずに残るので、あとで選び直せば続きから再開できる。
@@ -30,6 +33,7 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
   List<NationalRoute> _routes = const [];
   Map<String, UserRouteProgress> _progressByRoute = const {};
   String? _activeRouteId;
+  String _query = '';
 
   @override
   void initState() {
@@ -40,11 +44,7 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
   Future<void> _load() async {
     final routes = await _repo.getRoutes();
     final activeRouteId = await _repo.getActiveRouteId();
-    final progressByRoute = <String, UserRouteProgress>{};
-    for (final route in routes) {
-      final progress = await _repo.getProgress(route.routeId);
-      if (progress != null) progressByRoute[route.routeId] = progress;
-    }
+    final progressByRoute = await _repo.getProgressByRoute();
     if (!mounted) return;
     setState(() {
       _routes = routes;
@@ -55,25 +55,25 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
   }
 
   RouteStatus _statusOf(NationalRoute route) {
-    final progress = _progressByRoute[route.routeId];
-    if (progress == null) return RouteStatus.notStarted;
-    if (progress.isCompleted) return RouteStatus.completed;
-    if (progress.currentDistanceKm > 0) return RouteStatus.inProgress;
-    return RouteStatus.notStarted;
+    return RouteRepository.statusOfProgress(_progressByRoute[route.routeId]);
+  }
+
+  List<NationalRoute> get _filteredRoutes {
+    return _routes.where((r) => routeMatchesQuery(r, _query)).toList();
   }
 
   Future<void> _handleSelect(NationalRoute route) async {
     if (route.routeId == _activeRouteId || _switching) return;
 
-    final progress = _progressByRoute[route.routeId];
-    final hasProgress = progress != null && progress.currentDistanceKm > 0;
+    final currentKm = _progressByRoute[route.routeId]?.currentDistanceKm ?? 0;
+    final hasProgress = currentKm > 0;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('${route.name}に切り替えますか?'),
         content: Text(
           hasProgress
-              ? '現在 ${progress!.currentDistanceKm.toStringAsFixed(1)}km まで進んでいます。続きから再開します。'
+              ? '現在 ${currentKm.toStringAsFixed(1)}km まで進んでいます。続きから再開します。'
               : '0kmから挑戦を開始します。現在挑戦中の路線の進捗はそのまま保存されるので、あとで選び直せます。',
         ),
         actions: [
@@ -110,13 +110,30 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
           ? const Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue))
           : SafeArea(
               top: false,
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                itemCount: _routes.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 8),
-                itemBuilder: (context, index) => _buildRouteTile(_routes[index]),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                    child: RouteSearchField(onChanged: (q) => setState(() => _query = q)),
+                  ),
+                  Expanded(child: _buildRouteList(_filteredRoutes)),
+                ],
               ),
             ),
+    );
+  }
+
+  Widget _buildRouteList(List<NationalRoute> routes) {
+    if (routes.isEmpty) {
+      return const Center(
+        child: Text('該当する路線がありません', style: TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      itemCount: routes.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) => _buildRouteTile(routes[index]),
     );
   }
 
@@ -130,6 +147,15 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
     var meta = '${regionLabel[route.region]} ・ ${route.totalDistanceKm.toStringAsFixed(digits)}km';
     if (status == RouteStatus.inProgress && progress != null) {
       meta += ' ・ ${progress.currentDistanceKm.toStringAsFixed(1)}km地点';
+    }
+    final startLabel = route.startPoint.label;
+    final endLabel = route.endPoint.label;
+    if (startLabel != null && endLabel != null) {
+      meta += '\n$startLabel → $endLabel';
+    }
+    final prefectures = RouteCatalog.prefecturesOf(route.routeId);
+    if (prefectures.isNotEmpty) {
+      meta += '\n${prefectures.join('・')}';
     }
 
     return Opacity(
@@ -198,6 +224,8 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
                       const SizedBox(height: 2),
                       Text(
                         meta,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
                       ),
                     ],

@@ -8,11 +8,14 @@ import '../models/user_route_progress.dart';
 import 'app_database.dart';
 import 'auth_repository.dart';
 import 'mock_data.dart' as seed;
+import 'route_catalog.dart';
 
 /// [AppDatabase]（端末内SQLite）を実データソースとして扱うリポジトリ。
 ///
-/// バックエンド未接続の現段階では、初回起動時のみ mock_data.dart の内容を
-/// 初期データとしてDBへ書き込む（デモ用シード）。以降は画面からの読み書きは
+/// 国道のマスターデータ(全459路線)は同梱の `assets/routes/national_routes.json`
+/// ([RouteCatalog])を正とし、起動時にDBへ流し込む(JSONの version が上がったら
+/// 入れ直す)。バックエンド未接続の現段階では、進捗・走行ログが1件も無い初回起動時
+/// のみ mock_data.dart のデモ用の進捗・ログも書き込む。以降は画面からの読み書きは
 /// すべてこのクラス経由でSQLiteに対して行われる。
 class RouteRepository {
   RouteRepository._();
@@ -59,8 +62,8 @@ class RouteRepository {
 
   Future<void>? _seedFuture;
 
-  /// national_routes が空の場合のみ、mock_data.dart の内容をシードする。
-  /// 複数箇所から同時に呼ばれても二重シードされないよう、Futureをキャッシュする。
+  /// 路線マスターをDBに同期し、進捗・ログが空ならデモデータをシードする。
+  /// 複数箇所から同時に呼ばれても二重に走らないよう、Futureをキャッシュする。
   Future<void> ensureSeeded() {
     return _seedFuture ??= _seed();
   }
@@ -72,18 +75,59 @@ class RouteRepository {
 
   Future<void> _seed() async {
     final db = await _db;
-    final count = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM national_routes'),
-    );
-    if (count != null && count > 0) return;
+    await _syncRouteCatalog(db);
+    await _seedDemoDataIfEmpty(db);
+  }
 
+  /// DBに入れた路線マスターの版。JSON側の `version` と比べて入れ直しを判断する。
+  static const String _routeCatalogVersionSettingKey = 'route_catalog_version';
+
+  /// [RouteCatalog](同梱JSON)の内容を national_routes / route_checkpoints に流し込む。
+  ///
+  /// 同梱JSONの version がDBに記録した版と同じで、路線も入っていれば何もしない。
+  /// 版が上がっていれば(距離を実延長に差し替えたときなど)全路線を上書きする。
+  /// 路線IDは変えないので、user_route_progress / run_logs はそのまま生きる。
+  /// 旧版(先行6路線をmock_dataからシードした端末)からの移行もこの処理で済む。
+  Future<void> _syncRouteCatalog(Database db) async {
+    final version = await RouteCatalog.version();
+    final storedVersion = int.tryParse(await _getSetting(_routeCatalogVersionSettingKey) ?? '');
+    final count = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM national_routes'),
+        ) ??
+        0;
+    if (storedVersion == version && count > 0) return;
+
+    final routes = await RouteCatalog.load();
     final batch = db.batch();
-    for (final route in seed.routes) {
-      batch.insert('national_routes', route.toMap());
+    batch.delete('route_checkpoints');
+    for (final route in routes) {
+      batch.insert(
+        'national_routes',
+        route.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
       for (final checkpoint in route.checkpoints) {
         batch.insert('route_checkpoints', checkpoint.toMap());
       }
     }
+    await batch.commit(noResult: true);
+    await _setSetting(_routeCatalogVersionSettingKey, '$version');
+  }
+
+  /// 進捗も走行ログも1件も無い(=初回起動)ときだけ、mock_data.dart のデモ用の
+  /// 進捗・ログを書き込む。リリース前に取り除く予定(リリース前修正項目 1-1)。
+  Future<void> _seedDemoDataIfEmpty(Database db) async {
+    final progressCount = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM user_route_progress'),
+        ) ??
+        0;
+    final logCount = Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM run_logs'),
+        ) ??
+        0;
+    if (progressCount > 0 || logCount > 0) return;
+
+    final batch = db.batch();
     for (final progress in seed.userProgress) {
       batch.insert('user_route_progress', progress.toMap());
     }
@@ -153,6 +197,24 @@ class RouteRepository {
 
   /// Firestore同期用に、ユーザーの全進捗レコードを取得する（[_allProgress]の公開版）。
   Future<List<UserRouteProgress>> getAllProgress() => _allProgress();
+
+  /// ユーザーの全進捗を routeId をキーにしたMapで返す。
+  /// 一覧画面で路線ごとに [getProgress] を呼ぶと459回のクエリになるため、
+  /// まとめて1回で取るためのもの。
+  Future<Map<String, UserRouteProgress>> getProgressByRoute() async {
+    final all = await _allProgress();
+    return {for (final progress in all) progress.routeId: progress};
+  }
+
+  /// 進捗レコードから路線のステータスを判定する([routeStatusOf] と同じ規則)。
+  /// 一度にチャレンジできるのは1路線のみのため、進捗が付いていても
+  /// currentDistanceKm が0より大きい路線だけを「挑戦中」とみなす。
+  static RouteStatus statusOfProgress(UserRouteProgress? progress) {
+    if (progress == null) return RouteStatus.notStarted;
+    if (progress.isCompleted) return RouteStatus.completed;
+    if (progress.currentDistanceKm > 0) return RouteStatus.inProgress;
+    return RouteStatus.notStarted;
+  }
 
   Future<void> saveProgress(UserRouteProgress progress) async {
     final db = await _db;
@@ -234,12 +296,13 @@ class RouteRepository {
     final route = await getRoute(routeId);
     final rawDistance = existing.currentDistanceKm + deltaKm;
     final newDistance = rawDistance < 0 ? 0.0 : rawDistance;
-    final isCompleted = route != null && route.totalDistanceKm > 0 && newDistance >= route.totalDistanceKm;
+    final totalKm = route?.totalDistanceKm ?? 0;
+    final isCompleted = totalKm > 0 && newDistance >= totalKm;
 
     await saveProgress(UserRouteProgress(
       userId: existing.userId,
       routeId: existing.routeId,
-      currentDistanceKm: (isCompleted && route != null) ? route.totalDistanceKm : newDistance,
+      currentDistanceKm: isCompleted ? totalKm : newDistance,
       targetEndDate: existing.targetEndDate,
       runsPerWeekGoal: existing.runsPerWeekGoal,
       isCompleted: isCompleted,
@@ -276,14 +339,9 @@ class RouteRepository {
     return streak;
   }
 
-  /// 一度にチャレンジできるのは1路線のみのため、進捗が付いていても
-  /// currentDistanceKm が0より大きい路線だけを「挑戦中」とみなす。
+  /// 1路線のステータスを返す。判定規則は [statusOfProgress] を参照。
   Future<RouteStatus> routeStatusOf(String routeId) async {
-    final progress = await getProgress(routeId);
-    if (progress == null) return RouteStatus.notStarted;
-    if (progress.isCompleted) return RouteStatus.completed;
-    if (progress.currentDistanceKm > 0) return RouteStatus.inProgress;
-    return RouteStatus.notStarted;
+    return statusOfProgress(await getProgress(routeId));
   }
 
   static const String _activeRouteIdSettingKey = 'active_route_id';
@@ -374,9 +432,19 @@ class RouteRepository {
     return all.fold<double>(0.0, (sum, p) => sum + p.currentDistanceKm);
   }
 
+  /// 全国道の総延長の合計(km)。カバー率の分母。
+  Future<double> nationalNetworkTotalKm() async {
+    await ensureSeeded();
+    final db = await _db;
+    final rows = await db.rawQuery('SELECT SUM(total_distance_km) AS total FROM national_routes');
+    return (rows.first['total'] as num?)?.toDouble() ?? 0;
+  }
+
   Future<double> coverageRatio() async {
     final cumulative = await cumulativeDistanceKm();
-    final ratio = cumulative / seed.nationalNetworkTotalKm;
+    final total = await nationalNetworkTotalKm();
+    if (total <= 0) return 0;
+    final ratio = cumulative / total;
     return ratio < 1 ? ratio : 1;
   }
 
