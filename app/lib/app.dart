@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -60,16 +62,15 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-enum _ScreenKey { home, running, map }
+/// ボトムナビのタブ。並び順がそのままタブの並びになる。
+enum _Tab { home, running, map }
 
-const Map<_ScreenKey, String> _screenLabel = {
-  _ScreenKey.home: '① ホーム',
-  _ScreenKey.running: '② ランニング計測',
-  _ScreenKey.map: '③ 走破・地図',
-};
-
-/// デモ用の画面切り替えナビ付きのルートシェル。
-/// dev-nav（画面切り替えタブ）は実プロダクトのUIには含まれない開発用の仕組み。
+/// 3画面をボトムナビゲーションで切り替えるルートシェル。
+///
+/// リリース前修正項目 1-3: 開発用の画面切り替えタブ(dev-nav)・同期ボタン・
+/// ログアウトボタンを取り除き、製品としてのボトムナビに置き換えた。
+/// ログアウトはホーム画面の設定シートから、Firestore同期はログイン時と
+/// 計測終了時に自動で行う。
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -78,152 +79,96 @@ class RootShell extends StatefulWidget {
 }
 
 class _RootShellState extends State<RootShell> {
-  _ScreenKey _screen = _ScreenKey.home;
-  RunResult? _lastResult;
-  bool _syncing = false;
+  _Tab _tab = _Tab.home;
 
   /// 計測画面を生かしたままにしておくかどうか。
-  /// 一度ランニング計測タブを開いたらtrueになり、計測を終えるとfalseに戻る。
+  /// 一度「計測」タブを開いたらtrueになり、計測を終えるとfalseに戻る。
   bool _runningMounted = false;
 
-  void _goTo(_ScreenKey key) => setState(() {
-        _screen = key;
-        if (key == _ScreenKey.running) _runningMounted = true;
-      });
+  void _goTo(_Tab tab) {
+    if (tab == _tab) return;
+    setState(() {
+      _tab = tab;
+      if (tab == _Tab.running) _runningMounted = true;
+    });
+  }
 
   void _handleRunFinished(RunResult result) {
     setState(() {
-      _lastResult = result;
-      _screen = _ScreenKey.home;
+      _tab = _Tab.home;
       // 計測が完了したので計測画面は破棄する。次にタブを開いたときは
       // 新しい計測として作り直される。
       _runningMounted = false;
     });
-  }
-
-  /// 開発中のFirestore同期動作確認用（実プロダクトのUIには含まれない）。
-  Future<void> _handleSyncNow() async {
-    if (_syncing) return;
-    setState(() => _syncing = true);
-    try {
-      await FirestoreSyncRepository.instance.syncNow();
-    } finally {
-      if (mounted) setState(() => _syncing = false);
-    }
+    // 走った分をクラウドにも反映する。失敗しても次回ログイン時に再同期される
+    // ので、ここでは待たない。
+    unawaited(FirestoreSyncRepository.instance.syncNow());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${result.distanceKm.toStringAsFixed(2)}km / ${result.caloriesBurned}kcal を記録しました',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bgSurface,
-      body: Column(
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                children: [
-                  Expanded(child: _buildDevNav()),
-                  const SizedBox(width: 6),
-                  _buildSyncButton(),
-                  const SizedBox(width: 6),
-                  _buildSignOutButton(),
-                ],
-              ),
-            ),
+      // ノッチ／ステータスバーの回避はここで一括して行う(各画面は上側の
+      // SafeArea を持たない前提で作られている)。下側はボトムナビが確保する。
+      body: SafeArea(bottom: false, child: _buildActiveScreen()),
+      bottomNavigationBar: _buildBottomNav(),
+    );
+  }
+
+  Widget _buildBottomNav() {
+    return NavigationBarTheme(
+      data: NavigationBarThemeData(
+        backgroundColor: Colors.white,
+        indicatorColor: const Color(0x1F22588E),
+        height: 64,
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: selected ? AppColors.routeSignBlue : AppColors.textTertiary,
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return IconThemeData(
+            size: 24,
+            color: selected ? AppColors.routeSignBlue : AppColors.textTertiary,
+          );
+        }),
+      ),
+      child: NavigationBar(
+        selectedIndex: _tab.index,
+        onDestinationSelected: (index) => _goTo(_Tab.values[index]),
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'ホーム',
           ),
-          Expanded(child: _buildActiveScreen()),
-          if (_lastResult != null && _screen == _ScreenKey.home)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  '直近のラン: ${_lastResult!.distanceKm.toStringAsFixed(2)}km / '
-                  '${_lastResult!.caloriesBurned}kcal を記録しました',
-                  style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
-                ),
-              ),
-            ),
+          NavigationDestination(
+            icon: Icon(Icons.directions_run_outlined),
+            selectedIcon: Icon(Icons.directions_run),
+            label: '計測',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: '地図',
+          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildDevNav() {
-    return Row(
-      children: _ScreenKey.values.map((key) {
-        final active = key == _screen;
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: GestureDetector(
-              onTap: () => _goTo(key),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: active ? AppColors.routeSignGradient : null,
-                  color: active ? null : Colors.white,
-                  border: active ? null : Border.all(color: AppColors.borderSubtle),
-                  borderRadius: BorderRadius.circular(AppColors.radiusSm),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  _screenLabel[key]!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: active ? Colors.white : AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  /// 開発中のFirestore同期動作確認用ボタン（dev-nav同様、実プロダクトのUIには含まれない）。
-  Widget _buildSyncButton() {
-    return GestureDetector(
-      onTap: _handleSyncNow,
-      child: Container(
-        width: 36,
-        height: 36,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: AppColors.borderSubtle),
-          borderRadius: BorderRadius.circular(AppColors.radiusSm),
-        ),
-        child: _syncing
-            ? const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textSecondary),
-              )
-            : const Icon(Icons.sync, size: 16, color: AppColors.textSecondary),
-      ),
-    );
-  }
-
-  /// 開発中のログアウト動作確認用ボタン（dev-nav同様、実プロダクトのUIには含まれない）。
-  Widget _buildSignOutButton() {
-    return GestureDetector(
-      onTap: () => AuthRepository.instance.signOut(),
-      child: Container(
-        width: 36,
-        height: 36,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: AppColors.borderSubtle),
-          borderRadius: BorderRadius.circular(AppColors.radiusSm),
-        ),
-        child: const Icon(Icons.logout, size: 16, color: AppColors.textSecondary),
       ),
     );
   }
@@ -241,21 +186,21 @@ class _RootShellState extends State<RootShell> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (_screen == _ScreenKey.home)
-          HomeScreen(onStartRunning: () => _goTo(_ScreenKey.running))
-        else if (_screen == _ScreenKey.map)
+        if (_tab == _Tab.home)
+          HomeScreen(onStartRunning: () => _goTo(_Tab.running))
+        else if (_tab == _Tab.map)
           const MapCollectionScreen()
         else
           const SizedBox.shrink(),
         if (_runningMounted)
           Offstage(
             key: const ValueKey('running-screen'),
-            offstage: _screen != _ScreenKey.running,
+            offstage: _tab != _Tab.running,
             child: RunningScreen(
               onFinish: _handleRunFinished,
               // 退避中に挑戦する国道が変更されることがあるため、
               // 再表示されたタイミングを計測画面側に伝える。
-              isActive: _screen == _ScreenKey.running,
+              isActive: _tab == _Tab.running,
             ),
           ),
       ],
