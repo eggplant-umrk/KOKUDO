@@ -16,7 +16,11 @@ class RouteCard extends StatelessWidget {
   final NationalRoute route;
   final UserRouteProgress? progress;
 
-  const RouteCard({super.key, required this.route, required this.progress});
+  /// タップしたときの動作。走破・地図コレクション画面では、地図をその路線に
+  /// 寄せるために渡す。渡さないとタップできないカードになる。
+  final VoidCallback? onTap;
+
+  const RouteCard({super.key, required this.route, required this.progress, this.onTap});
 
   RouteStatus get _status {
     if (progress == null) return RouteStatus.notStarted;
@@ -56,10 +60,12 @@ class RouteCard extends StatelessWidget {
       meta += ' ・ 目標 ${formatDate(progress!.targetEndDate)}';
     }
 
-    return Container(
+    // タップできるときは、押した感じ(リップル)が出るよう背景色を Material 側に
+    // 持たせる。Container に色を残すとリップルがその下に隠れて見えない。
+    final card = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: AppColors.bgSurfaceRaised,
+        color: onTap == null ? AppColors.bgSurfaceRaised : null,
         border: Border.all(color: AppColors.borderSubtle),
         borderRadius: BorderRadius.circular(AppColors.radiusMd),
       ),
@@ -135,6 +141,14 @@ class RouteCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    if (onTap == null) return card;
+    return Material(
+      color: AppColors.bgSurfaceRaised,
+      borderRadius: BorderRadius.circular(AppColors.radiusMd),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(onTap: onTap, child: card),
     );
   }
 }

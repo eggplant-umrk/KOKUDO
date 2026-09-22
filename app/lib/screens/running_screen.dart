@@ -11,6 +11,7 @@ import '../models/run_log.dart';
 import '../theme/app_colors.dart';
 import '../utils/geo_utils.dart';
 import '../utils/pace_utils.dart';
+import '../widgets/completion_celebration.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/progress_bar.dart';
 import '../widgets/stat_tile.dart';
@@ -309,8 +310,9 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
       caloriesBurned: caloriesBurned,
     );
 
+    var justCompleted = false;
     if (routeId != null && _distanceKm > 0) {
-      await _repo.recordRun(
+      justCompleted = await _repo.recordRun(
         routeId: routeId,
         distanceKm: _distanceKm,
         durationSeconds: durationSeconds,
@@ -319,6 +321,13 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     }
 
     if (!mounted) return;
+    // この一本で国道を走り切ったときの演出。ホームへ戻ると計測画面は
+    // 破棄されるので、戻る前にここで出し切る。
+    final route = _route;
+    if (justCompleted && route != null) {
+      await showCompletionCelebration(context, route);
+      if (!mounted) return;
+    }
     widget.onFinish(result);
   }
 
