@@ -91,4 +91,51 @@ class AuthRepository {
     await _googleSignIn.signOut();
     await _auth.signOut();
   }
+
+  /// ログイン中のユーザーを Firebase Authentication から削除する。
+  ///
+  /// Firebase は最後のログインから時間が経っていると削除を
+  /// `requires-recent-login` で拒否するので、その場合は Google アカウントの
+  /// 選択ダイアログを出して再認証してからもう一度削除する。ユーザーが
+  /// ダイアログをキャンセルしたときは [AccountDeletionCancelled] を投げる。
+  /// Web版はボタン無しの再認証ができないため、その場合もこの例外にして
+  /// 「一度ログアウトして入り直してから」と案内する。
+  ///
+  /// 成功すると authStateChanges が null を流し、AuthGate がログイン画面に戻す。
+  Future<void> deleteCurrentUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    try {
+      await user.delete();
+    } on FirebaseAuthException catch (e) {
+      if (e.code != 'requires-recent-login') rethrow;
+      await _reauthenticateWithGoogle(user);
+      await user.delete();
+    }
+    await _googleSignIn.signOut();
+  }
+
+  Future<void> _reauthenticateWithGoogle(User user) async {
+    await _ensureGoogleSignInInitialized();
+    if (!supportsButtonlessSignIn) throw const AccountDeletionCancelled(needsRelogin: true);
+
+    final GoogleSignInAccount googleUser;
+    try {
+      googleUser = await _googleSignIn.authenticate();
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) throw const AccountDeletionCancelled();
+      rethrow;
+    }
+    final credential = GoogleAuthProvider.credential(idToken: googleUser.authentication.idToken);
+    await user.reauthenticateWithCredential(credential);
+  }
+}
+
+/// アカウント削除の途中で、必要な再認証ができなかったことを表す。
+/// [needsRelogin] が true のときは、この環境では再認証ダイアログを
+/// 出せないので、ログアウト→再ログインしてからやり直してもらう。
+class AccountDeletionCancelled implements Exception {
+  final bool needsRelogin;
+
+  const AccountDeletionCancelled({this.needsRelogin = false});
 }

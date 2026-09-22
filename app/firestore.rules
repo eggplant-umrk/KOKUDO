@@ -1,0 +1,76 @@
+rules_version = '2';
+
+// KOKUDO の Firestore セキュリティルール(リリース前修正項目 2-4)。
+//
+// データは users/{uid}/progress/{routeId} と users/{uid}/runLogs/{logId} の
+// 2つのサブコレクションだけ(FirestoreSyncRepository 参照)。
+// ルールは「ログイン済みで、かつ自分の uid 配下だけ読み書きできる」の1点。
+// それ以外の場所は誰も読み書きできない。
+//
+// 反映のしかた(どちらか):
+//   A. Firebase コンソール → Firestore Database → ルール に貼り付けて「公開」
+//   B. app/ で `firebase deploy --only firestore:rules`(firebase.json が指す)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // 文字列・数値の上限。壊れたクライアントや悪意ある書き込みで
+    // 巨大なドキュメントを作られないようにする程度の緩い制限。
+    function isShortString(value) {
+      return value is string && value.size() <= 200;
+    }
+
+    function isValidProgress(data) {
+      return data.keys().hasOnly([
+          'user_id', 'route_id', 'current_distance_km', 'target_end_date',
+          'runs_per_week_goal', 'is_completed', 'started_at', 'completed_at',
+          'cleared_checkpoints', 'updated_at',
+        ])
+        && isShortString(data.route_id)
+        && data.current_distance_km is number
+        && data.current_distance_km >= 0;
+    }
+
+    function isValidRunLog(data) {
+      return data.keys().hasOnly([
+          'log_id', 'user_id', 'route_id', 'distance_km', 'duration_seconds',
+          'calories_burned', 'recorded_at',
+        ])
+        && isShortString(data.route_id)
+        && data.distance_km is number
+        && data.distance_km >= 0
+        && data.duration_seconds is number
+        && data.duration_seconds >= 0;
+    }
+
+    match /users/{uid} {
+      // ユーザードキュメント自体は今のところ使っていないが、
+      // アカウント削除で消しに行くので delete は許可しておく。
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && request.resource.data.size() <= 20;
+
+      match /progress/{routeId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isValidProgress(request.resource.data)
+          && request.resource.data.user_id == uid
+          && request.resource.data.route_id == routeId;
+      }
+
+      match /runLogs/{logId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && isValidRunLog(request.resource.data)
+          && request.resource.data.user_id == uid
+          && request.resource.data.log_id == logId;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

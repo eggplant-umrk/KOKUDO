@@ -61,6 +61,32 @@ class FirestoreSyncRepository {
     }
   }
 
+  /// アカウント削除時に、[uid] のクラウド上のデータ(進捗・走行ログ・
+  /// ユーザードキュメント)をすべて消す。
+  ///
+  /// 認証が消える前(Firebase Authのユーザー削除より前)に呼ぶ必要がある。
+  /// ユーザー削除後はセキュリティルールで本人のデータに触れなくなるため。
+  /// 同期の途中で消すと消した端から書き戻されるので、同期中は待つ。
+  Future<void> deleteCloudData(String uid) async {
+    while (_syncing) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    _syncing = true;
+    try {
+      final operations = <void Function(WriteBatch batch)>[];
+      for (final collection in [_progressCollection(uid), _runLogsCollection(uid)]) {
+        final snapshot = await collection.get();
+        for (final doc in snapshot.docs) {
+          operations.add((batch) => batch.delete(doc.reference));
+        }
+      }
+      operations.add((batch) => batch.delete(_firestore.collection('users').doc(uid)));
+      await _commitInBatches(operations);
+    } finally {
+      _syncing = false;
+    }
+  }
+
   /// ローカルSQLiteの内容をFirestoreへ書き込む。
   ///
   /// N+1クエリを防ぐため、コレクション全体を1回のget()で取得してメモリ上で比較する。

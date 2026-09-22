@@ -2,10 +2,10 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../data/auth_repository.dart';
 import '../models/national_route.dart';
 import '../theme/app_colors.dart';
 import 'goal_speech_bubble.dart';
+import 'settings_sheet.dart';
 
 /// ホーム画面のキャラクター走行アニメーション領域。
 /// 背景はいただいた国道の走路イラスト（road-bg.webp／ループ動画）を、
@@ -52,9 +52,9 @@ class HeroStage extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 _buildRoadBackground(),
-                // 注: ノッチ／ステータスバーの回避は、常に画面最上部に表示される
-                // ルートシェルのdev-navが既に確保しているため、ここではSafeAreaを
-                // 重ねて二重にパディングしない。
+                // 注: ノッチ／ステータスバーの回避はルートシェル(app.dart)の
+                // SafeAreaが一括して行うため、ここではSafeAreaを重ねて
+                // 二重にパディングしない。
                 Positioned(
                   top: 0,
                   left: 0,
@@ -239,7 +239,7 @@ class HeroStage extends StatelessWidget {
 
   Widget _settingsButton(BuildContext context) {
     return GestureDetector(
-      onTap: () => _showSettingsSheet(context),
+      onTap: () => showSettingsSheet(context, onChangeRoute: onChangeRoute),
       child: ClipOval(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
@@ -252,69 +252,6 @@ class HeroStage extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-
-  /// 設定ボトムシート。現段階では「ルート変更」「ログアウト」のみを置く簡易版。
-  /// 「挑戦する国道を変更」は[onChangeRoute]経由でChangeRouteScreenを開く。
-  void _showSettingsSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppColors.radiusLg)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.borderSubtle,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '設定',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              ListTile(
-                leading: const Icon(Icons.alt_route, color: AppColors.textSecondary),
-                title: const Text('挑戦する国道を変更', style: TextStyle(fontWeight: FontWeight.w700)),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  onChangeRoute();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout, color: AppColors.danger),
-                title: const Text(
-                  'ログアウト',
-                  style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.danger),
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  AuthRepository.instance.signOut();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
     );
   }
 

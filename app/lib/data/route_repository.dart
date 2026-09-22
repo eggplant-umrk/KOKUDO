@@ -60,6 +60,22 @@ class RouteRepository {
 
   Future<Database> get _db async => AppDatabase.instance.database;
 
+  /// アカウント削除時に、[uid] の進捗・走行ログと、路線の選択などの設定を
+  /// 端末から消す。路線マスター(national_routes / route_checkpoints)は
+  /// ユーザーのデータではないので残す。
+  Future<void> deleteUserData(String uid) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.delete('user_route_progress', where: 'user_id = ?', whereArgs: [uid]);
+      await txn.delete('run_logs', where: 'user_id = ?', whereArgs: [uid]);
+      // フォールバックIDのまま残っている未ログイン時の記録も、この端末の
+      // 利用者のものなので一緒に消す。
+      await txn.delete('user_route_progress', where: 'user_id = ?', whereArgs: [fallbackUserId]);
+      await txn.delete('run_logs', where: 'user_id = ?', whereArgs: [fallbackUserId]);
+      await txn.delete('app_settings', where: 'key = ?', whereArgs: [_activeRouteIdSettingKey]);
+    });
+  }
+
   Future<void>? _seedFuture;
 
   /// 路線マスターをDBに同期し、進捗・ログが空ならデモデータをシードする。
