@@ -89,6 +89,7 @@ flutter:
   # 国道GeoJSON・ルートメタデータ(先行6路線分)
   assets:
     - assets/routes/
+    - assets/routes/geo/
     # 走破・地図画面の俯瞰用に描く日本の陸地の輪郭(Natural Earth 1:50m、パブリックドメイン)
     - assets/map/
     - assets/character-run.webp

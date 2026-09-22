@@ -337,14 +337,18 @@ const String _regionLabelSourceId = 'region-labels';
 const String _regionLabelLayerId = 'region-labels';
 const String _routeSignSourceId = 'route-signs';
 const String _routeSignLayerId = 'route-signs';
+const String _routeLineSourceId = 'route-lines';
+const String _routeLineLayerId = 'route-lines';
 
 class JapanMapPanelState extends State<JapanMapPanel> {
   MapLibreMapController? _controller;
   final Map<String, Circle> _startCircleByRouteId = {};
   final Map<String, Circle> _goalCircleByRouteId = {};
   final Map<RegionKey, Circle> _circleByRegion = {};
-  final Set<String> _lineLayerIds = {};
-  final Set<String> _lineSourceIds = {};
+  /// 読み込んだ路線の線(GeoJSONの geometry)。キーは `geojsonPath`、読めなかった
+  /// 路線は null を入れて二度目は読みに行かない。地図パネルは何度も作られる
+  /// (全画面の開閉など)ので、パネルをまたいで使い回す。
+  static final Map<String, Map<String, dynamic>?> _geometryCache = {};
 
   /// [_syncMarkers] の多重実行防止。実行中に再要求が来たら終了後にもう一度走らせる。
   bool _syncing = false;
@@ -418,23 +422,42 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     await _syncMarkers();
   }
 
-  /// 地方ラベルと国道標識のソース/レイヤーを(空の状態で)作る。
+  /// 路線の線・地方ラベル・国道標識のソース/レイヤーを(空の状態で)作る。
   /// 中身は [_syncMarkersNow] が setGeoJsonSource で入れ替える。
   Future<void> _ensureOverlayLayers(MapLibreMapController controller) async {
     if (_overlayLayersReady) return;
-    // 前回の作成が途中で失敗していると片方だけ残っていることがあるため、
+    // 前回の作成が途中で失敗していると一部だけ残っていることがあるため、
     // 先に消してから作り直す(無ければ何も起きない)。
-    for (final layerId in [_regionLabelLayerId, _routeSignLayerId]) {
+    for (final layerId in [_routeLineLayerId, _regionLabelLayerId, _routeSignLayerId]) {
       try {
         await controller.removeLayer(layerId);
       } catch (_) {}
     }
-    for (final sourceId in [_regionLabelSourceId, _routeSignSourceId]) {
+    for (final sourceId in [_routeLineSourceId, _regionLabelSourceId, _routeSignSourceId]) {
       try {
         await controller.removeSource(sourceId);
       } catch (_) {}
     }
     try {
+      // 路線の線は1つのソース・1つのレイヤーにまとめ、色と太さは feature の属性で
+      // 変える(路線ごとにレイヤーを作ると、地方選択で90本になったときに遅い)。
+      // 丸マーカー(アノテーション)の層の下に入れ、線が丸や標識に被らないようにする。
+      await controller.addGeoJsonSource(_routeLineSourceId, _emptyFeatureCollection());
+      await controller.addLineLayer(
+        _routeLineSourceId,
+        _routeLineLayerId,
+        const LineLayerProperties(
+          lineColor: [Expressions.get, 'color'],
+          lineWidth: [Expressions.get, 'width'],
+          lineOpacity: 0.85,
+          lineCap: 'round',
+          lineJoin: 'round',
+        ),
+        belowLayerId: controller.circleManager?.layerIds.first,
+        // タップ判定を付けると起点・終点の丸のタップを線が横取りしてしまう。
+        enableInteraction: false,
+      );
+
       await controller.addGeoJsonSource(_regionLabelSourceId, _emptyFeatureCollection());
       await controller.addSymbolLayer(
         _regionLabelSourceId,
@@ -472,8 +495,8 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       );
       _overlayLayersReady = true;
     } catch (_) {
-      // 作れなかった場合は未作成のままにする。地方ラベル・標識は出ないが、
-      // 丸マーカーと路線の線は描けるので続行する(線の belowLayerId も付けない)。
+      // 作れなかった場合は未作成のままにする。線・地方ラベル・標識は出ないが、
+      // 丸マーカーは描けるので続行する。
     }
   }
 
@@ -735,10 +758,6 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       return;
     }
     if (!mounted) return;
-    await _clearRouteLines(controller);
-
-    // 各路線の実際の道なりを描画する(丸マーカーの層の下に差し込む)。
-    await _syncRouteLines(controller);
 
     // 先に8地方の常時タップ可能なマーカー（路線が無くても選択できる）を描く。
     // 文字(地方名)はレイヤー側([_regionLabelLayerId])で描く。
@@ -852,6 +871,11 @@ class JapanMapPanelState extends State<JapanMapPanel> {
       if (!mounted) return;
     }
 
+    // 路線の線を入れ替える(標識画像の生成より先に。初回はアセットを読むが、
+    // 2回目以降はキャッシュから作るだけなので速い)。
+    await _syncRouteLines(controller, routes);
+    if (!mounted) return;
+
     // 地方ラベルを入れ替え、前回の標識は一旦消す(新しい丸に古い標識が
     // 重なって見えないように)。
     if (!mounted || !_overlayLayersReady) return;
@@ -889,7 +913,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
         {'type': 'FeatureCollection', 'features': signFeatures},
       );
     } catch (_) {
-      // 標識だけ出せない状態。丸マーカーと路線は描けているので何もしない。
+      // 標識だけ出せない状態。丸マーカーは描けているので何もしない。
     }
   }
 
@@ -924,72 +948,57 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     );
   }
 
-  /// 以前描画した路線ライン（ソース・レイヤー）をすべて取り除く。
-  /// レイヤーを先に消してからソースを消す必要があるため、この順番を守る。
-  Future<void> _clearRouteLines(MapLibreMapController controller) async {
-    for (final layerId in _lineLayerIds) {
-      try {
-        await controller.removeLayer(layerId);
-      } catch (_) {
-        // レイヤーが既に無い場合などは無視する。
-      }
-    }
-    _lineLayerIds.clear();
-    for (final sourceId in _lineSourceIds) {
-      try {
-        await controller.removeSource(sourceId);
-      } catch (_) {
-        // ソースが既に無い場合などは無視する。
-      }
-    }
-    _lineSourceIds.clear();
-  }
-
-  /// 各路線の `geojsonPath` からGeoJSONを読み込み、ステータス色の線として描画する。
-  /// アセットがまだ存在しない路線は読み込みに失敗するため、その路線の線だけを
-  /// 静かに省略する（他の路線やマーカー表示には影響させない）。
-  Future<void> _syncRouteLines(MapLibreMapController controller) async {
-    for (final route in _visibleRoutes) {
-      if (!mounted) return;
+  /// [routes] の `geojsonPath` の線を、ステータス色でまとめて1つのソースに入れる。
+  /// アセットが無い・読めない路線はその路線の線だけを静かに省略する。
+  Future<void> _syncRouteLines(MapLibreMapController controller, List<NationalRoute> routes) async {
+    if (!_overlayLayersReady) return;
+    final features = <Map<String, dynamic>>[];
+    for (final route in routes) {
       if (route.geojsonPath.isEmpty) continue;
-
-      final Map<String, dynamic> geojson;
-      try {
-        final raw = await rootBundle.loadString(route.geojsonPath);
-        geojson = jsonDecode(raw) as Map<String, dynamic>;
-      } catch (_) {
-        continue;
-      }
-
+      final geometry = await _loadGeometry(route.geojsonPath);
+      if (!mounted) return;
+      if (geometry == null) continue;
       final status = widget.statusOf(route.routeId);
       final selected = widget.activeRegion == route.region;
-      final sourceId = 'route-line-src-${route.routeId}';
-      final layerId = 'route-line-${route.routeId}';
-      try {
-        await controller.addGeoJsonSource(sourceId, geojson);
-        await controller.addLineLayer(
-          sourceId,
-          layerId,
-          LineLayerProperties(
-            lineColor: _statusHexColor[status],
-            lineWidth: selected ? 3.0 : 2.0,
-            lineOpacity: 0.85,
-            lineCap: 'round',
-            lineJoin: 'round',
-          ),
-          // 丸マーカー(アノテーション)の層の下に入れ、線が丸や標識に被らないようにする。
-          // 丸の層が取れない場合は地方ラベル層の下(=標識の下)に入れる。
-          belowLayerId: controller.circleManager?.layerIds.first ??
-              (_overlayLayersReady ? _regionLabelLayerId : null),
-          // タップ判定を付けると起点・終点の丸のタップを線が横取りしてしまう。
-          enableInteraction: false,
-        );
-        _lineSourceIds.add(sourceId);
-        _lineLayerIds.add(layerId);
-      } catch (_) {
-        // このアセットの追加に失敗した場合は静かに無視する。
-      }
+      final hasProgress = status != RouteStatus.notStarted;
+      features.add({
+        'type': 'Feature',
+        'properties': {
+          'color': _statusHexColor[status],
+          'width': hasProgress ? (selected ? 3.5 : 3.0) : (selected ? 2.0 : 1.5),
+        },
+        'geometry': geometry,
+      });
     }
+    if (!mounted) return;
+    try {
+      await controller.setGeoJsonSource(
+        _routeLineSourceId,
+        {'type': 'FeatureCollection', 'features': features},
+      );
+    } catch (_) {
+      // 地図の破棄直後など。無視する。
+    }
+  }
+
+  /// 路線の線のアセットを読み、最初の feature の geometry を返す(キャッシュ付き)。
+  /// 読めなければ null(以後は読みに行かない)。
+  static Future<Map<String, dynamic>?> _loadGeometry(String assetPath) async {
+    if (_geometryCache.containsKey(assetPath)) return _geometryCache[assetPath];
+    Map<String, dynamic>? geometry;
+    try {
+      // 文字列は自分でキャッシュするので rootBundle 側のキャッシュは使わない。
+      final raw = await rootBundle.loadString(assetPath, cache: false);
+      final doc = jsonDecode(raw) as Map<String, dynamic>;
+      final features = doc['features'] as List?;
+      geometry = features != null && features.isNotEmpty
+          ? (features.first as Map<String, dynamic>)['geometry'] as Map<String, dynamic>?
+          : doc['geometry'] as Map<String, dynamic>?;
+    } catch (_) {
+      geometry = null;
+    }
+    _geometryCache[assetPath] = geometry;
+    return geometry;
   }
 
   @override
@@ -1056,9 +1065,11 @@ class JapanMapPanelState extends State<JapanMapPanel> {
                   color: Colors.white.withValues(alpha: 0.78),
                   borderRadius: BorderRadius.circular(4),
                 ),
+                // 路線の線は OpenStreetMap 由来(ODbL)なので、その表示も必要。
                 child: const Text(
-                  '出典：国土地理院ベクトルタイル',
-                  style: TextStyle(fontSize: 9, color: Color(0xFF5F6B75)),
+                  '地図：国土地理院ベクトルタイル\n路線：© OpenStreetMap contributors',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(fontSize: 8, height: 1.25, color: Color(0xFF5F6B75)),
                 ),
               ),
             ),
