@@ -47,10 +47,11 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      // ユーザードキュメント自体は今のところ使っていないが、
-      // アカウント削除で消しに行くので delete は許可しておく。
+      // アプリはこのドキュメント自体には書き込まない(使うのは下の2つの
+      // サブコレクションだけ)。アカウント削除で消しに行くので delete だけ
+      // 許可し、書き込みは塞いでおく。
       allow read, delete: if isOwner(uid);
-      allow create, update: if isOwner(uid) && request.resource.data.size() <= 20;
+      allow create, update: if false;
 
       match /progress/{routeId} {
         allow read, delete: if isOwner(uid);

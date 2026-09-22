@@ -60,6 +60,28 @@ class RouteRepository {
 
   Future<Database> get _db async => AppDatabase.instance.database;
 
+  /// 端末内に残っている、この端末の利用者の記録の量。
+  /// アカウント削除の確認画面で「何が消えるか」を見せるために使う。
+  ///
+  /// [deleteUserData] が消す範囲と揃えるため、user_id では絞らない。
+  /// ログイン直後の同期([migrateFallbackUserIfNeeded])が失敗していると
+  /// 記録が [fallbackUserId] のまま残っていることがあり、uidで絞ると
+  /// 「消えるものはありません」と出したうえで実際には消してしまうため。
+  Future<({int runLogCount, double totalDistanceKm, int completedRouteCount})>
+      countLocalRecords() async {
+    await ensureSeeded();
+    final db = await _db;
+    final runLogCount =
+        Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM run_logs')) ?? 0;
+    final progressRows = await db.query('user_route_progress');
+    final progress = progressRows.map(UserRouteProgress.fromMap).toList();
+    return (
+      runLogCount: runLogCount,
+      totalDistanceKm: progress.fold<double>(0, (sum, p) => sum + p.currentDistanceKm),
+      completedRouteCount: progress.where((p) => p.isCompleted).length,
+    );
+  }
+
   /// アカウント削除時に、[uid] の進捗・走行ログと、路線の選択などの設定を
   /// 端末から消す。路線マスター(national_routes / route_checkpoints)は
   /// ユーザーのデータではないので残す。

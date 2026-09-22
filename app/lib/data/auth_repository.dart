@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:meta/meta.dart';
 
+import 'account_deletion.dart';
+
 /// Firebase Authenticationのラッパー。
 ///
 /// 現段階ではGoogleログインの導線のみを実装する（先行準備タスク）。
@@ -96,10 +98,10 @@ class AuthRepository {
   ///
   /// Firebase は最後のログインから時間が経っていると削除を
   /// `requires-recent-login` で拒否するので、その場合は Google アカウントの
-  /// 選択ダイアログを出して再認証してからもう一度削除する。ユーザーが
-  /// ダイアログをキャンセルしたときは [AccountDeletionCancelled] を投げる。
-  /// Web版はボタン無しの再認証ができないため、その場合もこの例外にして
-  /// 「一度ログアウトして入り直してから」と案内する。
+  /// 選択ダイアログを出して再認証してからもう一度削除する。
+  /// 再認証が完了しなかったときは、理由を持たせた
+  /// [AccountDeletionException] を投げる(キャンセル／Web版で出せない／
+  /// 別のアカウントが選ばれた、の3通り)。
   ///
   /// 成功すると authStateChanges が null を流し、AuthGate がログイン画面に戻す。
   Future<void> deleteCurrentUser() async {
@@ -117,25 +119,30 @@ class AuthRepository {
 
   Future<void> _reauthenticateWithGoogle(User user) async {
     await _ensureGoogleSignInInitialized();
-    if (!supportsButtonlessSignIn) throw const AccountDeletionCancelled(needsRelogin: true);
+    if (!supportsButtonlessSignIn) {
+      throw const AccountDeletionException(AccountDeletionFailure.reauthUnavailable);
+    }
 
     final GoogleSignInAccount googleUser;
     try {
       googleUser = await _googleSignIn.authenticate();
     } on GoogleSignInException catch (e) {
-      if (e.code == GoogleSignInExceptionCode.canceled) throw const AccountDeletionCancelled();
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        throw const AccountDeletionException(AccountDeletionFailure.reauthCancelled);
+      }
       rethrow;
     }
+
     final credential = GoogleAuthProvider.credential(idToken: googleUser.authentication.idToken);
-    await user.reauthenticateWithCredential(credential);
+    try {
+      await user.reauthenticateWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      // アカウント選択画面で、ログイン中のものとは別のGoogleアカウントが
+      // 選ばれた場合。通信の問題ではないので、専用の案内に振り分ける。
+      if (e.code == 'user-mismatch') {
+        throw const AccountDeletionException(AccountDeletionFailure.accountMismatch);
+      }
+      rethrow;
+    }
   }
-}
-
-/// アカウント削除の途中で、必要な再認証ができなかったことを表す。
-/// [needsRelogin] が true のときは、この環境では再認証ダイアログを
-/// 出せないので、ログアウト→再ログインしてからやり直してもらう。
-class AccountDeletionCancelled implements Exception {
-  final bool needsRelogin;
-
-  const AccountDeletionCancelled({this.needsRelogin = false});
 }

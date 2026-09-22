@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../data/account_deletion.dart';
 import '../data/account_service.dart';
 import '../data/auth_repository.dart';
 import '../screens/privacy_policy_screen.dart';
@@ -128,11 +129,11 @@ Future<void> _confirmAndDeleteAccount(BuildContext context) async {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('キャンセル'),
+          child: const Text('キャンセル', style: TextStyle(fontWeight: FontWeight.w700)),
         ),
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('次へ', style: TextStyle(fontWeight: FontWeight.w700)),
+          child: const Text('次へ'),
         ),
       ],
     ),
@@ -215,19 +216,37 @@ Future<void> _confirmAndDeleteAccount(BuildContext context) async {
   String? errorMessage;
   try {
     await AccountService.instance.deleteAccount();
-  } on AccountDeletionCancelled catch (e) {
-    errorMessage = e.needsRelogin
-        ? '本人確認のため、一度ログアウトしてから再度ログインし、もう一度お試しください。'
-        : 'アカウントの削除をキャンセルしました。';
+  } on AccountDeletionException catch (e) {
+    errorMessage = _deletionFailureMessage(e.reason);
   } catch (_) {
     errorMessage = 'アカウントの削除に失敗しました。通信環境を確認して、もう一度お試しください。';
   }
 
   if (rootNavigator.mounted && rootNavigator.canPop()) rootNavigator.pop();
-  if (errorMessage != null) {
-    messenger.showSnackBar(
-      SnackBar(content: Text(errorMessage), behavior: SnackBarBehavior.floating),
-    );
+  // 成功したときも黙って画面が変わるだけにならないよう、必ず結果を知らせる。
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(errorMessage ?? 'アカウントを削除しました。'),
+      behavior: SnackBarBehavior.floating,
+      duration: Duration(seconds: errorMessage == null ? 3 : 6),
+    ),
+  );
+}
+
+/// 削除が途中で止まったときに出す文面。
+String _deletionFailureMessage(AccountDeletionFailure reason) {
+  switch (reason) {
+    case AccountDeletionFailure.syncBusy:
+      return '記録の同期中です。少し待ってから、もう一度お試しください。';
+    case AccountDeletionFailure.reauthCancelled:
+      return 'アカウントの削除をキャンセルしました。';
+    case AccountDeletionFailure.reauthUnavailable:
+      return '本人確認のため、一度ログアウトしてから再度ログインし、もう一度お試しください。';
+    case AccountDeletionFailure.accountMismatch:
+      return 'ログイン中のものとは別のGoogleアカウントが選択されました。同じアカウントを選んでください。';
+    case AccountDeletionFailure.timedOut:
+      return '時間内に完了しませんでした。削除が済んでいない可能性があります。'
+          '通信できる場所で、もう一度お試しください。';
   }
 }
 

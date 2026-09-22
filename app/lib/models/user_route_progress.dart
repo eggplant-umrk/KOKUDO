@@ -58,6 +58,11 @@ class UserRouteProgress {
     );
   }
 
+  /// 端末内SQLiteにも、Firestoreにもこの形のまま保存する。
+  /// フィールドを足す・消すときは app/firestore.rules の isValidProgress も
+  /// 合わせて直すこと。ずれると書き込みがルールに拒否されるが、同期の例外は
+  /// FirestoreSyncRepository.syncNow が握りつぶす(debugPrintのみ)ので、
+  /// 画面上は何も起きないまま同期だけ止まり、気づきにくい。
   Map<String, Object?> toMap() {
     return {
       'user_id': userId,
