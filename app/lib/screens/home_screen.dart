@@ -12,7 +12,6 @@ import '../widgets/gradient_button.dart';
 import '../widgets/hero_stage.dart';
 import '../widgets/stat_tile.dart';
 import 'change_route_screen.dart';
-import 'run_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onStartRunning;
@@ -57,13 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _streakDays = streakDays;
       _loading = false;
     });
-  }
-
-  Future<void> _handleOpenHistory() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const RunHistoryScreen()),
-    );
-    await _load();
   }
 
   Future<void> _handleChangeRoute() async {
@@ -192,20 +184,21 @@ class _HomeScreenState extends State<HomeScreen> {
         break;
       }
     }
-    RouteCheckpoint? lastCheckpoint;
-    for (final c in route.checkpoints.reversed) {
-      if (c.distanceKmFromStart <= currentDistanceKm) {
-        lastCheckpoint = c;
-        break;
-      }
+    // 次に目指すものを1つだけ出す。チェックポイントが登録されていない路線
+    // (大半がそう)では、残り距離がまだ十分あるのに「まもなくゴール」と
+    // 出てしまっていたため、本当に近いときだけそう言うようにした。
+    final remainingKm = route.totalDistanceKm - currentDistanceKm;
+    final String progressLabel;
+    if (nextCheckpoint != null) {
+      final toNextKm = nextCheckpoint.distanceKmFromStart - currentDistanceKm;
+      progressLabel = '次は${nextCheckpoint.name} あと${toNextKm.toStringAsFixed(1)}km';
+    } else if (remainingKm <= 0.05) {
+      progressLabel = 'ゴール！完走おめでとう';
+    } else if (remainingKm < 1) {
+      progressLabel = 'まもなくゴール！ あと${(remainingKm * 1000).round()}m';
+    } else {
+      progressLabel = 'ゴールまであと ${remainingKm.toStringAsFixed(1)}km';
     }
-
-    final passedLandmark = lastCheckpoint != null
-        ? '${currentDistanceKm.toStringAsFixed(1)}km地点｜${lastCheckpoint.name}'
-        : '${currentDistanceKm.toStringAsFixed(1)}km地点';
-    final nextCheckpointLabel = nextCheckpoint != null
-        ? '${nextCheckpoint.name}まであと ${(nextCheckpoint.distanceKmFromStart - currentDistanceKm).toStringAsFixed(1)}km'
-        : 'まもなくゴール！';
 
     return Container(
       color: AppColors.bgSurface,
@@ -219,10 +212,8 @@ class _HomeScreenState extends State<HomeScreen> {
               runsPerWeekGoal: runsPerWeekGoal,
               onChangeTargetEndDate: _handleChangeTargetEndDate,
               onChangeRunsPerWeekGoal: _handleChangeRunsPerWeekGoal,
-              onOpenHistory: _handleOpenHistory,
               onChangeRoute: _handleChangeRoute,
-              passedLandmark: passedLandmark,
-              nextCheckpointLabel: nextCheckpointLabel,
+              progressLabel: progressLabel,
               streakDays: _streakDays,
             ),
           ),

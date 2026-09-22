@@ -85,13 +85,13 @@ void main() {
     expect(find.text('ランニング開始'), findsOneWidget);
   });
 
-  testWidgets('Root shell shows the bottom navigation with three tabs', (WidgetTester tester) async {
+  testWidgets('Root shell shows the bottom navigation with four tabs', (WidgetTester tester) async {
     await _pumpAppAndWaitForLoad(tester);
 
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.widgetWithText(NavigationDestination, 'ホーム'), findsOneWidget);
-    expect(find.widgetWithText(NavigationDestination, '計測'), findsOneWidget);
-    expect(find.widgetWithText(NavigationDestination, '地図'), findsOneWidget);
+    for (final label in ['ホーム', '計測', '記録', '地図']) {
+      expect(find.widgetWithText(NavigationDestination, label), findsOneWidget);
+    }
   });
 }
 

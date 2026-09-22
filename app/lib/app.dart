@@ -10,6 +10,7 @@ import 'models/run_log.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_collection_screen.dart';
+import 'screens/run_history_screen.dart';
 import 'screens/running_screen.dart';
 import 'theme/app_colors.dart';
 
@@ -63,14 +64,18 @@ class AuthGate extends StatelessWidget {
 }
 
 /// ボトムナビのタブ。並び順がそのままタブの並びになる。
-enum _Tab { home, running, map }
+enum _Tab { home, running, history, map }
 
-/// 3画面をボトムナビゲーションで切り替えるルートシェル。
+/// 4画面をボトムナビゲーションで切り替えるルートシェル。
 ///
 /// リリース前修正項目 1-3: 開発用の画面切り替えタブ(dev-nav)・同期ボタン・
 /// ログアウトボタンを取り除き、製品としてのボトムナビに置き換えた。
 /// ログアウトはホーム画面の設定シートから、Firestore同期はログイン時と
 /// 計測終了時に自動で行う。
+///
+/// ラン履歴はホーム画面右上のカレンダーボタンから開いていたが、見出しが
+/// 窮屈だったのでタブに移した。タブを離れるとホーム画面は破棄されるため、
+/// 履歴で記録を直して戻ると、作り直されたホーム画面が進捗を読み直す。
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
 
@@ -164,6 +169,11 @@ class _RootShellState extends State<RootShell> {
             label: '計測',
           ),
           NavigationDestination(
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
+            label: '記録',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.map_outlined),
             selectedIcon: Icon(Icons.map),
             label: '地図',
@@ -186,12 +196,13 @@ class _RootShellState extends State<RootShell> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (_tab == _Tab.home)
-          HomeScreen(onStartRunning: () => _goTo(_Tab.running))
-        else if (_tab == _Tab.map)
-          const MapCollectionScreen()
-        else
-          const SizedBox.shrink(),
+        switch (_tab) {
+          _Tab.home => HomeScreen(onStartRunning: () => _goTo(_Tab.running)),
+          _Tab.history => const RunHistoryScreen(),
+          _Tab.map => const MapCollectionScreen(),
+          // 計測画面は下の Offstage 側が持つので、ここは場所だけ空けておく。
+          _Tab.running => const SizedBox.shrink(),
+        },
         if (_runningMounted)
           Offstage(
             key: const ValueKey('running-screen'),
