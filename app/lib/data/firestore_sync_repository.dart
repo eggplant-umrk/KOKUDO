@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/run_log.dart';
 import '../models/user_route_progress.dart';
+import 'account_deletion.dart';
 import 'auth_repository.dart';
 import 'route_repository.dart';
 
@@ -20,6 +21,9 @@ class FirestoreSyncRepository {
   final RouteRepository _routeRepository = RouteRepository.instance;
 
   bool _syncing = false;
+
+  /// アカウント削除のとき、進行中の同期の終了を待つ上限。
+  static const Duration _syncWaitLimit = Duration(seconds: 5);
 
   /// ログイン中のユーザーについて、ローカル⇔クラウドの同期を1回実行する。
   /// 未ログイン時、または既に同期処理が進行中の場合は何もしない。
@@ -58,6 +62,42 @@ class FirestoreSyncRepository {
         operations[j](batch);
       }
       await batch.commit();
+    }
+  }
+
+  /// アカウント削除時に、[uid] のクラウド上のデータ(進捗・走行ログ・
+  /// ユーザードキュメント)をすべて消す。
+  ///
+  /// 認証が消える前(Firebase Authのユーザー削除より前)に呼ぶ必要がある。
+  /// ユーザー削除後はセキュリティルールで本人のデータに触れなくなるため。
+  /// 同期の途中で消すと消した端から書き戻されるので、同期中は待つ。
+  /// ただし待ちっぱなしにはしない。オフラインだと Firestore の
+  /// batch.commit() はオンラインに戻るまで完了しないため、走っている同期が
+  /// いつまでも終わらないことがある。[_syncWaitLimit] を過ぎたら
+  /// syncBusy として中断する(待たずに削除に進むと、その同期の push が
+  /// 消したドキュメントを書き戻して、認証だけ消えたデータがクラウドに
+  /// 取り残されてしまう)。
+  Future<void> deleteCloudData(String uid) async {
+    final deadline = DateTime.now().add(_syncWaitLimit);
+    while (_syncing) {
+      if (!DateTime.now().isBefore(deadline)) {
+        throw const AccountDeletionException(AccountDeletionFailure.syncBusy);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    _syncing = true;
+    try {
+      final operations = <void Function(WriteBatch batch)>[];
+      for (final collection in [_progressCollection(uid), _runLogsCollection(uid)]) {
+        final snapshot = await collection.get();
+        for (final doc in snapshot.docs) {
+          operations.add((batch) => batch.delete(doc.reference));
+        }
+      }
+      operations.add((batch) => batch.delete(_firestore.collection('users').doc(uid)));
+      await _commitInBatches(operations);
+    } finally {
+      _syncing = false;
     }
   }
 

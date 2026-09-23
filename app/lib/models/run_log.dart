@@ -30,6 +30,9 @@ class RunLog {
     );
   }
 
+  /// 端末内SQLiteにも、Firestoreにもこの形のまま保存する。
+  /// フィールドを足す・消すときは app/firestore.rules の isValidRunLog も
+  /// 合わせて直すこと(理由は UserRouteProgress.toMap のコメント参照)。
   Map<String, Object?> toMap() {
     return {
       'log_id': logId,
