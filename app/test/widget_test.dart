@@ -84,6 +84,15 @@ void main() {
 
     expect(find.text('ランニング開始'), findsOneWidget);
   });
+
+  testWidgets('Root shell shows the bottom navigation with three tabs', (WidgetTester tester) async {
+    await _pumpAppAndWaitForLoad(tester);
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.widgetWithText(NavigationDestination, 'ホーム'), findsOneWidget);
+    expect(find.widgetWithText(NavigationDestination, '計測'), findsOneWidget);
+    expect(find.widgetWithText(NavigationDestination, '地図'), findsOneWidget);
+  });
 }
 
 /// RouteRepository経由のSQLite読み込み(initState内の非同期処理)は、
