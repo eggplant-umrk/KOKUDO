@@ -10,6 +10,7 @@ import '../widgets/route_card.dart';
 import '../widgets/route_search_field.dart';
 import '../widgets/stat_tile.dart';
 import 'map_fullscreen_screen.dart';
+import 'share_completion_screen.dart';
 
 class MapCollectionScreen extends StatefulWidget {
   const MapCollectionScreen({super.key});
@@ -379,6 +380,8 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
             route: r,
             progress: _progressByRoute[r.routeId],
             onTap: () => _focusRouteOnMap(r),
+            // 完走済みの路線だけ、カードの右端にシェアボタンが出る。
+            onShare: () => pushShareCompletion(Navigator.of(context, rootNavigator: true), r),
           );
         },
       ),

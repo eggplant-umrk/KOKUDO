@@ -20,7 +20,17 @@ class RouteCard extends StatelessWidget {
   /// 寄せるために渡す。渡さないとタップできないカードになる。
   final VoidCallback? onTap;
 
-  const RouteCard({super.key, required this.route, required this.progress, this.onTap});
+  /// 完走画像をシェアする動作。完走済みの路線にだけシェアボタンが出る。
+  /// 完走直後のお祝いダイアログを閉じてしまった後でも、ここからやり直せる。
+  final VoidCallback? onShare;
+
+  const RouteCard({
+    super.key,
+    required this.route,
+    required this.progress,
+    this.onTap,
+    this.onShare,
+  });
 
   RouteStatus get _status {
     if (progress == null) return RouteStatus.notStarted;
@@ -139,6 +149,17 @@ class RouteCard extends StatelessWidget {
             '${(ratio * 100).toStringAsFixed(0)}%',
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.textSecondary),
           ),
+          if (onShare != null && status == RouteStatus.completed) ...[
+            const SizedBox(width: 2),
+            IconButton(
+              onPressed: onShare,
+              icon: const Icon(Icons.ios_share, size: 18),
+              color: AppColors.accentGoldText,
+              tooltip: '完走画像をシェア',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+            ),
+          ],
         ],
       ),
     );
