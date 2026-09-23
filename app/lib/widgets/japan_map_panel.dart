@@ -1,19 +1,28 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show Factory, kIsWeb;
+import 'package:flutter/gestures.dart' show EagerGestureRecognizer, OneSequenceGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../models/national_route.dart';
 import '../models/user_route_progress.dart';
+import '../data/route_catalog.dart' show RouteCatalog;
+import 'route_search_field.dart' show prefecturesInQuery, routeMatchesQuery;
 import 'route_sign_badge.dart' show routeSignPath;
 
 /// 走破・地図コレクション画面用の実地図パネル（MapLibre GL）。
 ///
 /// 各国道の起点・終点にステータス別の色分けマーカー（未走破=グレー、
-/// 挑戦中=ネオンブルー、完走=ゴールド）を表示する。起点は路線番号入りの
+/// 挑戦中=ネオンブルー、完走=ゴールド）を表示する。ただし全459路線を
+/// いっぺんに描くと日本全体が灰色の点で埋まって見づらく、標識画像の生成にも
+/// 数秒かかるため、地方を選んでいないときは進捗のある路線（挑戦中・完走）
+/// だけ、地方を選ぶとその地方の全路線を描く（[_visibleRoutes]）。[searchQuery] が
+/// あるときは地方・進捗に関係なく検索に当たる路線だけを描き、地図をその範囲に
+/// 寄せる。起点は路線番号入りの
 /// 国道標識（おにぎり）で、尖った下端が起点の位置を指す。終点（ゴール）は
 /// 白地に色付きの太い縁取りの円で区別する。マーカーをタップするとその路線が
 /// 属する地方でフィルターできる（もう一度タップで解除）。
@@ -36,6 +45,9 @@ class JapanMapPanel extends StatefulWidget {
   final double? height;
   final VoidCallback? onRequestFullscreen;
 
+  /// 路線の検索語（[routeMatchesQuery] の書式）。空なら検索なし。
+  final String searchQuery;
+
   const JapanMapPanel({
     super.key,
     required this.routes,
@@ -44,6 +56,7 @@ class JapanMapPanel extends StatefulWidget {
     required this.statusOf,
     this.height = 220,
     this.onRequestFullscreen,
+    this.searchQuery = '',
   });
 
   @override
@@ -346,6 +359,17 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   /// プラグインが例外を投げるため、[didUpdateWidget] からの描き直しはこれで守る。
   bool _styleLoaded = false;
 
+  /// 地図を寄せ済みの検索語。描き直しのときに [JapanMapPanel.searchQuery] と
+  /// 違っていれば検索結果の範囲に寄せ直し、検索が消えていれば日本全体に戻す。
+  /// (「寄せる要求」をフラグで持つと、入力が速いときに古い描き直しが
+  /// フラグを消費して最後の検索語で寄らないことがあるため、語そのものを覚える)
+  String? _fittedQuery;
+
+  /// 検索語の変更は1文字ごとに来るので、少し待ってまとめて描き直す
+  /// (1文字目の「1」で100路線以上が当たり、標識画像を大量に作ってしまうため)。
+  Timer? _searchDebounce;
+  static const Duration _searchDebounceDuration = Duration(milliseconds: 300);
+
   static const CameraPosition _initialCamera = CameraPosition(
     target: LatLng(36.5, 138.2),
     zoom: 3.9,
@@ -356,17 +380,25 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     super.didUpdateWidget(oldWidget);
     // スタイル読み込み前の変更は、読み込み完了時の _onStyleLoaded が
     // そのときの widget の状態で描くので、ここでは何もしなくてよい。
-    if (_styleLoaded &&
-        (oldWidget.routes != widget.routes ||
-            oldWidget.activeRegion != widget.activeRegion)) {
+    if (!_styleLoaded) return;
+    if (oldWidget.searchQuery != widget.searchQuery) {
+      _searchDebounce?.cancel();
+      _searchDebounce = Timer(_searchDebounceDuration, () {
+        _searchDebounce = null;
+        if (mounted) _syncMarkers();
+      });
+    }
+    if (oldWidget.routes != widget.routes || oldWidget.activeRegion != widget.activeRegion) {
       _syncMarkers();
     }
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     final controller = _controller;
     controller?.onCircleTapped.remove(_handleCircleTapped);
+    _controller = null;
     super.dispose();
   }
 
@@ -579,6 +611,9 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   }
 
   void _handleCircleTapped(Circle circle) {
+    // 検索中は地方の絞り込みを効かせていないので、タップでも変えない
+    // (変えると、検索を消した瞬間に思わぬ地方の絞り込みが現れる)。
+    if (widget.searchQuery.trim().isNotEmpty) return;
     final regionName = circle.data?['region'] as String?;
     if (regionName == null) return;
     final region = RegionKey.values.byName(regionName);
@@ -611,24 +646,95 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     }
   }
 
+  /// 地図に描く路線。検索中は検索に当たる路線だけ（地方・進捗は問わない）。
+  /// そうでなければ、地方を選んでいないときは進捗のある路線(挑戦中・完走)
+  /// だけ、地方を選んだときはその地方の全路線＋他地方の進捗のある路線。
+  List<NationalRoute> get _visibleRoutes {
+    final query = widget.searchQuery;
+    if (query.trim().isNotEmpty) {
+      return widget.routes.where((route) => routeMatchesQuery(route, query)).toList();
+    }
+    final region = widget.activeRegion;
+    return widget.routes.where((route) {
+      if (region != null && route.region == region) return true;
+      return widget.statusOf(route.routeId) != RouteStatus.notStarted;
+    }).toList();
+  }
+
+  /// 検索結果に合わせて地図を寄せる。
+  ///
+  /// 検索語に都道府県が入っていればその都道府県の範囲(本土側)に寄せる。
+  /// 「神奈川」で 1号(東京〜大阪)が当たっても、東京〜大阪ではなく神奈川県が
+  /// 見えるようにするため。都道府県の範囲が無い(語が番号だけ、範囲データ無し)
+  /// ときは、当たった路線の起点・終点がすべて収まる範囲に寄せる。
+  Future<void> _fitToSearch(MapLibreMapController controller, String query, List<NationalRoute> routes) async {
+    // 何も当たっていないのに県へ飛ぶと「空の地図」になるので、そのときは動かさない。
+    if (routes.isEmpty) return;
+    var minLat = double.infinity, maxLat = -double.infinity;
+    var minLng = double.infinity, maxLng = -double.infinity;
+    void include(double lat, double lng) {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    }
+
+    for (final pref in prefecturesInQuery(query)) {
+      final box = RouteCatalog.prefectureBounds(pref);
+      if (box == null) continue;
+      include(box[1], box[0]);
+      include(box[3], box[2]);
+    }
+    if (minLat == double.infinity) {
+      for (final route in routes) {
+        include(route.startPoint.lat, route.startPoint.lng);
+        include(route.endPoint.lat, route.endPoint.lng);
+      }
+    }
+    try {
+      // 1路線・ごく短い路線など範囲が点に近いときは、bounds だと寄りすぎるので
+      // 中心＋固定ズームにする。
+      if (maxLat - minLat < 0.05 && maxLng - minLng < 0.05) {
+        await controller.animateCamera(
+          CameraUpdate.newLatLngZoom(LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2), 10),
+        );
+      } else {
+        await controller.animateCamera(
+          CameraUpdate.newLatLngBounds(
+            LatLngBounds(southwest: LatLng(minLat, minLng), northeast: LatLng(maxLat, maxLng)),
+            left: 24,
+            top: 24,
+            right: 24,
+            bottom: 24,
+          ),
+        );
+      }
+    } catch (_) {
+      // 地図の破棄直後など。寄せられなくても描画自体は済んでいるので無視する。
+    }
+  }
+
   Future<void> _syncMarkersNow() async {
     final controller = _controller;
     if (controller == null) return;
     if (!mounted) return;
     final dpr = MediaQuery.devicePixelRatioOf(context);
 
-    if (_startCircleByRouteId.isNotEmpty) {
-      await controller.removeCircles(_startCircleByRouteId.values);
+    try {
+      final stale = [
+        ..._startCircleByRouteId.values,
+        ..._goalCircleByRouteId.values,
+        ..._circleByRegion.values,
+      ];
       _startCircleByRouteId.clear();
-    }
-    if (_goalCircleByRouteId.isNotEmpty) {
-      await controller.removeCircles(_goalCircleByRouteId.values);
       _goalCircleByRouteId.clear();
-    }
-    if (_circleByRegion.isNotEmpty) {
-      await controller.removeCircles(_circleByRegion.values);
       _circleByRegion.clear();
+      if (stale.isNotEmpty) await controller.removeCircles(stale);
+    } catch (_) {
+      // 全画面を閉じた直後など、地図が破棄されていたら以降はやめる。
+      return;
     }
+    if (!mounted) return;
     await _clearRouteLines(controller);
 
     // 各路線の実際の道なりを描画する(丸マーカーの層の下に差し込む)。
@@ -637,87 +743,153 @@ class JapanMapPanelState extends State<JapanMapPanel> {
     // 先に8地方の常時タップ可能なマーカー（路線が無くても選択できる）を描く。
     // 文字(地方名)はレイヤー側([_regionLabelLayerId])で描く。
     final regionLabelFeatures = <Map<String, dynamic>>[];
+    final regionOptions = <CircleOptions>[];
+    final regionData = <Map<String, dynamic>>[];
+    final regionKeys = <RegionKey>[];
     for (final entry in _regionCenters.entries) {
-      // 全画面を閉じるなどで描画中に破棄されたら、以降の地図操作はやめる。
-      if (!mounted) return;
       final region = entry.key;
       final selected = widget.activeRegion == region;
-      final circle = await controller.addCircle(
-        CircleOptions(
-          geometry: entry.value,
-          circleColor: selected ? '#2FA9FF' : '#B9C6CE',
-          circleRadius: selected ? 15 : 12,
-          circleOpacity: selected ? 0.55 : 0.35,
-          circleStrokeColor: '#FFFFFF',
-          circleStrokeWidth: 1.2,
-        ),
-        {'region': region.name},
-      );
-      _circleByRegion[region] = circle;
+      regionOptions.add(CircleOptions(
+        geometry: entry.value,
+        circleColor: selected ? '#2FA9FF' : '#B9C6CE',
+        circleRadius: selected ? 15 : 12,
+        circleOpacity: selected ? 0.55 : 0.35,
+        circleStrokeColor: '#FFFFFF',
+        circleStrokeWidth: 1.2,
+      ));
+      regionData.add({'region': region.name});
+      regionKeys.add(region);
       regionLabelFeatures.add(_pointFeature(entry.value, {'label': _regionShortLabel[region]}));
+    }
+    // 全画面を閉じるなどで描画中に破棄されたら、以降の地図操作はやめる。
+    if (!mounted) return;
+    try {
+      final regionCircles = await controller.addCircles(regionOptions, regionData);
+      for (var i = 0; i < regionCircles.length; i++) {
+        _circleByRegion[regionKeys[i]] = regionCircles[i];
+      }
+    } catch (_) {
+      // 描画中に地図が破棄された場合。以降はやめる。
+      return;
     }
 
     // その上に、実際の路線の起点・終点マーカー（ステータス別に色分け）を重ねて描く。
     // 起点=小さな色付きの丸(タップ用。常時表示)。寄ると([_signMinZoom]以上)その上に
     //      路線番号入りの国道標識が立ち、尖った下端が起点を指す。
     // 終点(ゴール)=白地に色付きの太い縁取りの円。
-    final signFeatures = <Map<String, dynamic>>[];
-    for (final route in widget.routes) {
-      if (!mounted) return;
+    // 地方を選ぶと最大90路線(中部)になるので、丸は1路線ずつではなく
+    // addCircles でまとめて追加する(プラットフォーム呼び出しが2回で済む)。
+    // 未挑戦の路線は進捗のある路線より小さめの丸にして、密集しても見分けやすくする。
+    // 検索語と路線リストは同じ瞬間に読む(あとで語が変わっても、この描き直しは
+    // この語のぶんとして扱い、新しい語は次の描き直しが担当する)。
+    final query = widget.searchQuery.trim();
+    final routes = _visibleRoutes;
+    final startOptions = <CircleOptions>[];
+    final startData = <Map<String, dynamic>>[];
+    final goalOptions = <CircleOptions>[];
+    final goalData = <Map<String, dynamic>>[];
+    for (final route in routes) {
       final status = widget.statusOf(route.routeId);
       final selected = widget.activeRegion == route.region;
+      final hasProgress = status != RouteStatus.notStarted;
       final color = _statusHexColor[status];
       final data = {'routeId': route.routeId, 'region': route.region.name};
       final start = LatLng(route.startPoint.lat, route.startPoint.lng);
 
-      final startCircle = await controller.addCircle(
-        CircleOptions(
-          geometry: start,
-          circleColor: color,
-          circleRadius: selected ? 9 : 7,
-          circleStrokeColor: '#FFFFFF',
-          circleStrokeWidth: selected ? 2.5 : 1.5,
-          circleOpacity: 0.95,
-        ),
-        data,
-      );
-      _startCircleByRouteId[route.routeId] = startCircle;
+      startOptions.add(CircleOptions(
+        geometry: start,
+        circleColor: color,
+        circleRadius: hasProgress ? (selected ? 9 : 7) : 5,
+        circleStrokeColor: '#FFFFFF',
+        circleStrokeWidth: hasProgress ? (selected ? 2.5 : 1.5) : 1.0,
+        circleOpacity: 0.95,
+      ));
+      startData.add(data);
 
-      final imageName = await _ensureSignImage(controller, route.routeNumber, status, dpr);
-      if (!mounted) return;
-      if (imageName != null) {
-        signFeatures.add(_pointFeature(start, {
-          'icon': imageName,
-          'size': (selected ? 1.15 : 1.0) * _signIconSize(dpr),
-        }));
-      }
-
-      final goalCircle = await controller.addCircle(
-        CircleOptions(
-          geometry: LatLng(route.endPoint.lat, route.endPoint.lng),
-          circleColor: '#FFFFFF',
-          circleRadius: selected ? 8 : 6,
-          circleStrokeColor: color,
-          circleStrokeWidth: selected ? 3.0 : 2.2,
-          circleOpacity: 0.95,
-        ),
-        {...data, 'kind': 'goal'},
-      );
-      _goalCircleByRouteId[route.routeId] = goalCircle;
+      goalOptions.add(CircleOptions(
+        geometry: LatLng(route.endPoint.lat, route.endPoint.lng),
+        circleColor: '#FFFFFF',
+        circleRadius: hasProgress ? (selected ? 8 : 6) : 4,
+        circleStrokeColor: color,
+        circleStrokeWidth: hasProgress ? (selected ? 3.0 : 2.2) : 1.6,
+        circleOpacity: 0.95,
+      ));
+      goalData.add({...data, 'kind': 'goal'});
     }
 
+    if (!mounted) return;
+    if (startOptions.isNotEmpty) {
+      try {
+        final startCircles = await controller.addCircles(startOptions, startData);
+        for (var i = 0; i < startCircles.length; i++) {
+          _startCircleByRouteId[routes[i].routeId] = startCircles[i];
+        }
+        if (!mounted) return;
+        final goalCircles = await controller.addCircles(goalOptions, goalData);
+        for (var i = 0; i < goalCircles.length; i++) {
+          _goalCircleByRouteId[routes[i].routeId] = goalCircles[i];
+        }
+      } catch (_) {
+        // 描画中に地図が破棄された場合。以降はやめる。
+        return;
+      }
+    }
+
+    // 丸を出したあとで、検索語に合わせて地図を寄せる／戻す。寄せ済みの語と
+    // 比べるので、描き直しが重なっても最後の検索語で必ず寄る。
+    if (!mounted) return;
+    if (query.isNotEmpty && query != _fittedQuery) {
+      _fittedQuery = query;
+      await _fitToSearch(controller, query, routes);
+      if (!mounted) return;
+    } else if (query.isEmpty && _fittedQuery != null) {
+      _fittedQuery = null;
+      try {
+        await controller.animateCamera(CameraUpdate.newCameraPosition(_initialCamera));
+      } catch (_) {
+        // 地図の破棄直後など。無視する。
+      }
+      if (!mounted) return;
+    }
+
+    // 地方ラベルを入れ替え、前回の標識は一旦消す(新しい丸に古い標識が
+    // 重なって見えないように)。
     if (!mounted || !_overlayLayersReady) return;
     try {
       await controller.setGeoJsonSource(
         _regionLabelSourceId,
         {'type': 'FeatureCollection', 'features': regionLabelFeatures},
       );
+      await controller.setGeoJsonSource(_routeSignSourceId, _emptyFeatureCollection());
+    } catch (_) {
+      // レイヤー作成に失敗している場合。丸マーカーと路線は描けているので続行する。
+      return;
+    }
+
+    // 標識画像は1路線ずつ描いて登録するため(初回の地方選択で数十枚)、丸を先に
+    // 出してから作る。2回目以降は登録済みなので速い([_registeredSignImages])。
+    final signFeatures = <Map<String, dynamic>>[];
+    for (final route in routes) {
+      if (!mounted) return;
+      final status = widget.statusOf(route.routeId);
+      final selected = widget.activeRegion == route.region;
+      final hasProgress = status != RouteStatus.notStarted;
+      final imageName = await _ensureSignImage(controller, route.routeNumber, status, dpr);
+      if (imageName == null) continue;
+      signFeatures.add(_pointFeature(LatLng(route.startPoint.lat, route.startPoint.lng), {
+        'icon': imageName,
+        'size': (selected && hasProgress ? 1.15 : 1.0) * _signIconSize(dpr),
+      }));
+    }
+
+    if (!mounted || !_overlayLayersReady) return;
+    try {
       await controller.setGeoJsonSource(
         _routeSignSourceId,
         {'type': 'FeatureCollection', 'features': signFeatures},
       );
     } catch (_) {
-      // レイヤー作成に失敗している場合。丸マーカーと路線は描けているので続行する。
+      // 標識だけ出せない状態。丸マーカーと路線は描けているので何もしない。
     }
   }
 
@@ -777,7 +949,7 @@ class JapanMapPanelState extends State<JapanMapPanel> {
   /// アセットがまだ存在しない路線は読み込みに失敗するため、その路線の線だけを
   /// 静かに省略する（他の路線やマーカー表示には影響させない）。
   Future<void> _syncRouteLines(MapLibreMapController controller) async {
-    for (final route in widget.routes) {
+    for (final route in _visibleRoutes) {
       if (!mounted) return;
       if (route.geojsonPath.isEmpty) continue;
 
@@ -843,6 +1015,12 @@ class JapanMapPanelState extends State<JapanMapPanel> {
             // マーカー以外の場所のタップは全画面表示の合図にする。
             // (マーカーのタップは onCircleTapped が先に受け取る。)
             onMapClick: onRequestFullscreen == null ? null : (_, _) => onRequestFullscreen(),
+            // スクロールする画面(走破・地図コレクション)に埋め込んだときも、地図の上の
+            // ドラッグ・ピンチは地図が受け取る(指定しないとスクロール側に取られて
+            // 地図を動かせない)。スクロールは地図の外で行う。
+            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+              Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+            },
             attributionButtonPosition: AttributionButtonPosition.bottomLeft,
           ),
           if (onRequestFullscreen != null)
