@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"route_id":"130","route_number":130,"name":"国道130号","source":"OpenStreetMap contributors (ODbL)","osm_relations":[3767038]},"geometry":{"type":"MultiLineString","coordinates":[[[139.75301,35.64918],[139.75816,35.64734]],[[139.75826,35.64722],[139.75295,35.64911]]]}}]}

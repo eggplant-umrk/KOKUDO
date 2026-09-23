@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"route_id":"177","route_number":177,"name":"国道177号","source":"OpenStreetMap contributors (ODbL)","osm_relations":[3767309]},"geometry":{"type":"MultiLineString","coordinates":[[[135.32907,35.45075],[135.32915,35.45324],[135.32526,35.45601]]]}}]}
