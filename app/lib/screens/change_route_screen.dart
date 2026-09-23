@@ -65,15 +65,15 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
   Future<void> _handleSelect(NationalRoute route) async {
     if (route.routeId == _activeRouteId || _switching) return;
 
-    final progress = _progressByRoute[route.routeId];
-    final hasProgress = progress != null && progress.currentDistanceKm > 0;
+    final currentKm = _progressByRoute[route.routeId]?.currentDistanceKm ?? 0;
+    final hasProgress = currentKm > 0;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('${route.name}に切り替えますか?'),
         content: Text(
           hasProgress
-              ? '現在 ${progress!.currentDistanceKm.toStringAsFixed(1)}km まで進んでいます。続きから再開します。'
+              ? '現在 ${currentKm.toStringAsFixed(1)}km まで進んでいます。続きから再開します。'
               : '0kmから挑戦を開始します。現在挑戦中の路線の進捗はそのまま保存されるので、あとで選び直せます。',
         ),
         actions: [
