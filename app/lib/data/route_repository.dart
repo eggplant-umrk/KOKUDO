@@ -341,6 +341,7 @@ class RouteRepository {
     final route = await getRoute(routeId);
     final rawDistance = existing.currentDistanceKm + deltaKm;
     final newDistance = rawDistance < 0 ? 0.0 : rawDistance;
+    // 路線が見つからない場合は総距離0として扱い、完走にはならない。
     final totalKm = route?.totalDistanceKm ?? 0;
     final isCompleted = totalKm > 0 && newDistance >= totalKm;
 
