@@ -21,11 +21,13 @@ class HeroStage extends StatelessWidget {
   final int? runsPerWeekGoal;
   final ValueChanged<DateTime> onChangeTargetEndDate;
   final ValueChanged<int?> onChangeRunsPerWeekGoal;
-  final VoidCallback onOpenHistory;
   final VoidCallback onChangeRoute;
-  final String passedLandmark; // 例: "42.0km地点｜小田原市"
-  final String nextCheckpointLabel; // 例: "箱根峠まであと 12.4km"
-  final int streakDays; // 連続記録日数(ストリーク)。0の場合はバッジを表示しない。
+  /// 走行状況をひとことで表す文。例: "次は箱根峠 あと12.4km"。
+  /// 「何km地点か」は進捗バーが出しているので、ここでは繰り返さない。
+  final String progressLabel;
+
+  /// 連続記録日数(ストリーク)。1日では「連続」と言えないので、2日以上のときだけ出す。
+  final int streakDays;
 
   const HeroStage({
     super.key,
@@ -35,10 +37,8 @@ class HeroStage extends StatelessWidget {
     required this.runsPerWeekGoal,
     required this.onChangeTargetEndDate,
     required this.onChangeRunsPerWeekGoal,
-    required this.onOpenHistory,
     required this.onChangeRoute,
-    required this.passedLandmark,
-    required this.nextCheckpointLabel,
+    required this.progressLabel,
     this.streakDays = 0,
   });
 
@@ -61,26 +61,33 @@ class HeroStage extends StatelessWidget {
                   right: 0,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // 見出しは1行にまとめる。区間(起点〜終点)を路線名の下に
+                    // 置いていたぶん吹き出しが下がり、キャラクターと重なって
+                    // いたため、路線名の右に並べて高さを詰めた。
+                    //
+                    // 区間は Expanded で余りを全部受け取らせ、その中で左寄せに
+                    // する。こうすると設定ボタンが必ず右端に付き、かつチップの
+                    // 背景だけが横に伸びることもない(Flexible だと余りが残り、
+                    // 区間が短い路線で歯車が中途半端な位置に付いてしまう)。
+                    // 区間が長い路線では、はみ出さないよう末尾を省略する。
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            _routeBadge(),
-                            const Spacer(),
-                            _historyButton(context),
-                            const SizedBox(width: 8),
-                            _settingsButton(context),
-                          ],
+                        _routeBadge(),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: _addressChip(),
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        _addressChip(),
+                        const SizedBox(width: 8),
+                        _settingsButton(context),
                       ],
                     ),
                   ),
                 ),
                 Positioned(
-                  top: 92,
+                  top: 64,
                   left: 0,
                   right: 0,
                   child: Center(
@@ -111,16 +118,17 @@ class HeroStage extends StatelessWidget {
             ),
           ),
         ),
+        // 状況の表示は1行に収める。折り返すと背景イラストが押し上げられて
+        // レイアウトが崩れるため、長い地名はチップの中で省略する。
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          child: Row(
             children: [
-              if (streakDays > 0)
+              if (streakDays >= 2) ...[
                 _chip(Icons.local_fire_department, '$streakDays日連続', gold: true),
-              _chip(Icons.location_on, passedLandmark),
-              _chip(Icons.flag, nextCheckpointLabel, gold: true),
+                const SizedBox(width: 8),
+              ],
+              Flexible(child: _chip(Icons.flag, progressLabel)),
             ],
           ),
         ),
@@ -218,25 +226,6 @@ class HeroStage extends StatelessWidget {
     );
   }
 
-  /// ラン履歴・カレンダー画面を直接開くボタン(設定ボタンの隣に配置)。
-  Widget _historyButton(BuildContext context) {
-    return GestureDetector(
-      onTap: onOpenHistory,
-      child: ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-          child: Container(
-            width: 36,
-            height: 36,
-            alignment: Alignment.center,
-            color: Colors.white.withValues(alpha: 0.88),
-            child: const Icon(Icons.calendar_month, size: 18, color: AppColors.textPrimary),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _settingsButton(BuildContext context) {
     return GestureDetector(
       onTap: () => showSettingsSheet(context, onChangeRoute: onChangeRoute),
@@ -261,10 +250,12 @@ class HeroStage extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           color: const Color(0x66142236),
           child: Text(
             '${route.startPoint.label ?? ''} 〜 ${route.endPoint.label ?? ''}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 12,
@@ -279,7 +270,7 @@ class HeroStage extends StatelessWidget {
 
   Widget _chip(IconData icon, String label, {bool gold = false}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: gold ? const Color(0x24FFB238) : AppColors.bgSurfaceRaised,
         border: Border.all(color: gold ? const Color(0x4DFFB238) : AppColors.borderSubtle),
@@ -290,12 +281,16 @@ class HeroStage extends StatelessWidget {
         children: [
           Icon(icon, size: 12, color: gold ? AppColors.accentGold : AppColors.textSecondary),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: gold ? AppColors.accentGoldText : AppColors.textSecondary,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: gold ? AppColors.accentGoldText : AppColors.textSecondary,
+              ),
             ),
           ),
         ],

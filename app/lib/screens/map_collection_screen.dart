@@ -31,6 +31,10 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
   RegionKey? _region;
   RouteStatus? _status;
 
+  /// 一覧の路線をタップしたときに地図をそこへ寄せるため、地図パネルの
+  /// State を呼べるようにしておく([JapanMapPanelState.focusOnRoute])。
+  final GlobalKey<JapanMapPanelState> _mapKey = GlobalKey<JapanMapPanelState>();
+
   /// 路線の検索語。地図パネルの上の検索欄で入力する。全画面地図
   /// ([MapFullscreenScreen])にも検索欄があり、どちらで変えてももう一方に反映する。
   String _query = '';
@@ -265,6 +269,24 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
     );
   }
 
+  /// 一覧で選んだ路線に地図を寄せる。
+  ///
+  /// 画面全体が1つのスクロールなので、一覧を下まで見ていると地図は画面外に
+  /// ある。寄せても見えないと意味がないので、先に地図を画面内へ戻してから
+  /// カメラを動かす。
+  void _focusRouteOnMap(NationalRoute route) {
+    final mapContext = _mapKey.currentContext;
+    if (mapContext != null) {
+      Scrollable.ensureVisible(
+        mapContext,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        alignment: 0.1,
+      );
+    }
+    _mapKey.currentState?.focusOnRoute(route);
+  }
+
   /// MapLibre GLによる実地図で地方ごとの位置・状況を確認できるパネル。
   Widget _buildMapPanel() {
     return ClipRRect(
@@ -278,6 +300,7 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppColors.radiusSm),
                 child: JapanMapPanel(
+                  key: _mapKey,
                   routes: _routes,
                   activeRegion: _region,
                   onSelectRegion: (region) => setState(() => _region = region),
@@ -352,7 +375,11 @@ class _MapCollectionScreenState extends State<MapCollectionScreen> {
         separatorBuilder: (context, index) => const SizedBox(height: 7),
         itemBuilder: (context, index) {
           final r = filtered[index];
-          return RouteCard(route: r, progress: _progressByRoute[r.routeId]);
+          return RouteCard(
+            route: r,
+            progress: _progressByRoute[r.routeId],
+            onTap: () => _focusRouteOnMap(r),
+          );
         },
       ),
     );

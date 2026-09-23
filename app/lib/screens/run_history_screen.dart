@@ -253,44 +253,68 @@ class _RunHistoryScreenState extends State<RunHistoryScreen> {
     required bool isToday,
     required bool isSelected,
   }) {
+    // 走った日は国道標識(おにぎり)の形で示す。選んでいる日はその形を
+    // 塗りつぶし、今日には下に点を打つ。走っていない日は形を出さず、
+    // 選んでいるときだけ丸く塗る(形の違いで「走った/走っていない」が分かる)。
+    final numberColor = isSelected
+        ? Colors.white
+        : (hasRun ? AppColors.routeSignBlue : AppColors.textPrimary);
+    final number = Text(
+      '$day',
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: hasRun ? FontWeight.w900 : FontWeight.w700,
+        color: numberColor,
+      ),
+    );
+
     return Padding(
       padding: const EdgeInsets.all(2),
       child: GestureDetector(
         onTap: () => _selectDay(date),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.routeSignBlue : Colors.transparent,
-            shape: BoxShape.circle,
-            border: isToday && !isSelected ? Border.all(color: AppColors.routeSignBlue, width: 1.4) : null,
-          ),
-          alignment: Alignment.center,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$day',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: isSelected ? Colors.white : AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
+        // 形の外側をタップしても選べるように、余白でも当たり判定を取る。
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (hasRun)
+              RouteSignMark(
+                size: _dayMarkSize,
+                color: AppColors.routeSignBlue,
+                filled: isSelected,
+                child: number,
+              )
+            else
               Container(
-                width: 4,
-                height: 4,
+                width: _dayMarkSize,
+                height: _dayMarkSize,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: hasRun ? (isSelected ? Colors.white : AppColors.accentGold) : Colors.transparent,
+                  color: isSelected ? AppColors.routeSignBlue : Colors.transparent,
                 ),
+                child: number,
               ),
-            ],
-          ),
+            const SizedBox(height: 2),
+            // 今日の印。日付の位置が揃うよう、今日以外も同じ大きさの
+            // 透明な点を置いて高さを合わせる。
+            Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isToday ? AppColors.routeSignBlue : Colors.transparent,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  /// カレンダーの日付マーク(おにぎり／丸)の大きさ。
+  static const double _dayMarkSize = 30;
 
   Widget _buildSummaryRow() {
     final logs = _visibleLogs;
