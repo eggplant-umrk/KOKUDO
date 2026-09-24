@@ -30,6 +30,10 @@
 	<string>ランニング計測中の距離・ペースの計測のために、位置情報を使用します。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>計測中に画面を消したり他のアプリに切り替えたりしても走行距離の記録を続けるために、位置情報を使用します。計測を終了すると位置情報の取得も停止します。</string>
+	<!-- 完走のシェア画像を共有シートから「画像を保存」で写真に書き出すときに要る。
+	     これが無いと、保存を選んだ瞬間にiOSがアプリを終了させる。 -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>完走を記念するシェア画像を写真に保存するために使用します。写真の閲覧や読み込みは行いません。</string>
 	<!-- 計測中に画面を消しても位置更新を受け取り続けるためのバックグラウンドモード。
 	     AppleSettings.allowBackgroundLocationUpdates と対で必要になる。 -->
 	<key>UIBackgroundModes</key>
