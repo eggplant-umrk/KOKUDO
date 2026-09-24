@@ -89,10 +89,30 @@ class AuthRepository {
     return _auth.signInAnonymously();
   }
 
+  /// ログアウトする。
+  ///
+  /// 順番に意味がある。以前はGoogle側のサインアウトを先にawaitしていたため、
+  /// そこで止まるとFirebase側のsignOut()に到達せず、認証状態が残ったままに
+  /// なっていた(「ログアウトを押しても何も起きない」状態)。Google側は例外を
+  /// 投げるとは限らず、Web版では初期化が済んでいないと完了しないFutureを返す
+  /// ことがあるため、try/catchだけでは足りない。
+  ///
+  /// アプリとしてのログアウトはFirebase側で決まるので、そちらを先に確実に
+  /// 行う。Google側は「次回どのアカウントで入るか」に効くだけなので、
+  /// 失敗しても待ち続けても、ログアウト自体は成立させる。
   Future<void> signOut() async {
-    await _googleSignIn.signOut();
     await _auth.signOut();
+    try {
+      await _ensureGoogleSignInInitialized();
+      await _googleSignIn.signOut().timeout(_googleSignOutTimeout);
+    } catch (_) {
+      // Googleのアカウント選択状態が残るだけなので、ここでは何もしない。
+    }
   }
+
+  /// Google側のサインアウトを待つ上限。戻ってこない実装を踏んでも
+  /// 呼び出し側を固めないための保険。
+  static const Duration _googleSignOutTimeout = Duration(seconds: 5);
 
   /// ログイン中のユーザーを Firebase Authentication から削除する。
   ///
