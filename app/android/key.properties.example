@@ -1,0 +1,12 @@
+# リリース署名の設定。このファイルをコピーして key.properties を作る。
+# key.properties と鍵本体(.jks)は .gitignore 済みで、リポジトリには入れない。
+#
+# 鍵の作り方(1回だけ):
+#   keytool -genkey -v -keystore kokudo-release.jks -storetype JKS \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias kokudo
+#
+# storeFile は絶対パスで、区切りは / で書く(Windows の \ は Gradle が解釈できない)。
+storePassword=
+keyPassword=
+keyAlias=kokudo
+storeFile=
