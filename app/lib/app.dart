@@ -97,32 +97,46 @@ class _RouteSetupGateState extends State<RouteSetupGate> {
   /// 待ちっぱなしにはしない。時間切れのときは端末内の記録だけで判断する。
   static const Duration _syncWaitLimit = Duration(seconds: 8);
 
-  /// クラウドからの取り込みを待ってから、挑戦中の国道があるか判断する。
+  /// 挑戦中の国道があるか判断する。
   ///
+  /// 端末内に無いときだけ、クラウドからの取り込みを待ってから見直す。
   /// ログイン画面が投げた同期と競争すると、クラウドに進捗があるのに
   /// 「未選択」と判断して、機種変更・再インストールの人にまで選択画面を
   /// 出してしまう。しかもそこで選んだ内容は明示的な選択として保存される
   /// ため、あとから届いた本来の進捗より優先されてしまう。
+  ///
+  /// 逆に、端末内に既にあるなら待つ理由が無い。無条件に待つと、毎日使って
+  /// いる人まで起動のたびに同期の完了を待たされることになる(同期は従来
+  /// どおり裏で走り続ける)。
   Future<void> _check() async {
-    try {
-      await FirestoreSyncRepository.instance.syncNow().timeout(_syncWaitLimit);
-    } catch (_) {
-      // 同期できなくても、端末内の記録だけで判断して先へ進める。
-    }
-    String? routeId;
-    try {
-      routeId = await RouteRepository.instance.getActiveRouteId();
-    } catch (_) {
-      // 端末内の読み込みに失敗したときは、スピナーのまま固まらせずに
-      // 選択画面へ進める。そこで選び直せるし、保存に失敗すれば
-      // ChangeRouteScreen 側が理由を出す(PR #37 レビュー指摘)。
-      routeId = null;
+    var routeId = await _readActiveRouteId();
+    if (routeId == null) {
+      try {
+        await FirestoreSyncRepository.instance.syncNow().timeout(_syncWaitLimit);
+      } catch (_) {
+        // 同期できなくても、端末内の記録だけで判断して先へ進める。
+      }
+      routeId = await _readActiveRouteId();
     }
     if (!mounted) return;
     setState(() {
       _hasActiveRoute = routeId != null;
       _loading = false;
     });
+  }
+
+  /// 端末内の「挑戦中の国道」を読む。読めなければ null を返す。
+  ///
+  /// 例外をそのまま上げるとローディング表示のまま固まってしまう。この画面は
+  /// 戻る手段が無いので、読めないときは選択画面へ進める。そこで選び直せる
+  /// し、保存にも失敗すれば ChangeRouteScreen 側が理由を出す
+  /// (PR #37 レビュー指摘)。
+  Future<String?> _readActiveRouteId() async {
+    try {
+      return await RouteRepository.instance.getActiveRouteId();
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
