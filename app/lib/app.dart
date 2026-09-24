@@ -109,7 +109,15 @@ class _RouteSetupGateState extends State<RouteSetupGate> {
     } catch (_) {
       // 同期できなくても、端末内の記録だけで判断して先へ進める。
     }
-    final routeId = await RouteRepository.instance.getActiveRouteId();
+    String? routeId;
+    try {
+      routeId = await RouteRepository.instance.getActiveRouteId();
+    } catch (_) {
+      // 端末内の読み込みに失敗したときは、スピナーのまま固まらせずに
+      // 選択画面へ進める。そこで選び直せるし、保存に失敗すれば
+      // ChangeRouteScreen 側が理由を出す(PR #37 レビュー指摘)。
+      routeId = null;
+    }
     if (!mounted) return;
     setState(() {
       _hasActiveRoute = routeId != null;
