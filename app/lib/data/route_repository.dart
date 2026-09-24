@@ -326,13 +326,33 @@ class RouteRepository {
   /// Firestoreからのプル同期用: 同じlog_idが既に存在する場合は上書きする
   /// （[addRunLog]と異なりConflictAlgorithm.replaceを使うため、再同期時に
   /// 重複エラーにならない）。
+  /// クラウドから取り込んだ走行記録をローカルへ反映する。
+  ///
+  /// この記録がちょうど端末側で削除された(または削除の途中で)場合に
+  /// 復活してしまわないよう、delete_run_logs への挿入([deleteRunLog])と
+  /// 同じテーブルへの読み書きを1つのトランザクションにまとめている。
+  /// sqfliteは同一DBへのトランザクションを直列に実行するため、
+  /// [deleteRunLog] と本メソッドがほぼ同時に呼ばれても、どちらが先に
+  /// コミットされたかで結果が一意に決まる(削除が先ならここでスキップし、
+  /// 取り込みが先でも直後の削除がrun_logsから消して控えを残すので、
+  /// 呼び出し順に関わらず最終的に「削除済み」の状態に収束する)。
   Future<void> upsertRunLog(RunLog log) async {
     final db = await _db;
-    await db.insert(
-      'run_logs',
-      log.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      final pendingDeletion = await txn.query(
+        'deleted_run_logs',
+        columns: ['log_id'],
+        where: 'log_id = ? AND user_id IN (?, ?)',
+        whereArgs: [log.logId, currentUserId, fallbackUserId],
+        limit: 1,
+      );
+      if (pendingDeletion.isNotEmpty) return;
+      await txn.insert(
+        'run_logs',
+        log.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   Future<List<RunLog>> getRunLogs() async {

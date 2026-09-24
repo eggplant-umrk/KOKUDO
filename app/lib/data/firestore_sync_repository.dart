@@ -188,9 +188,15 @@ class FirestoreSyncRepository {
     }
 
     final runLogsSnapshot = await _runLogsCollection(uid).get();
+    // 今しがた消したばかりの記録(skipRunLogIds)に加えて、まだクラウドへ
+    // 伝えていない削除待ちの記録(この同期の途中で新たに削除されたものを
+    // 含む)も取り込み対象から除外する。skipRunLogIdsは_pushDeletionsToCloud
+    // 実行時点のスナップショットなので、それより後に削除された記録は
+    // ここで改めて取得しないと弾けない。
+    final stillPendingDeletionIds = await _routeRepository.pendingRunLogDeletions();
+    final excludedRunLogIds = {...skipRunLogIds, ...stillPendingDeletionIds};
     for (final doc in runLogsSnapshot.docs) {
-      // 今しがた消したばかりの記録は取り込まない。
-      if (skipRunLogIds.contains(doc.id)) continue;
+      if (excludedRunLogIds.contains(doc.id)) continue;
       await _routeRepository.upsertRunLog(RunLog.fromMap(doc.data()));
     }
   }

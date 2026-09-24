@@ -104,4 +104,28 @@ void main() {
 
     expect(await repo.pendingRunLogDeletions(), [log.logId]);
   });
+
+  // 同期中に削除すると記録が復活するバグの再現テスト。
+  //
+  // 同期の pull は「クラウドにまだ残っている記録をローカルへ取り込む
+  // (upsertRunLog)」処理だが、その記録がちょうど端末側で削除され、
+  // まだクラウドへ伝え切っていない(控えが残っている)場合は、取り込みで
+  // 復活させてはいけない。
+  test('削除待ちの記録は、同期中のクラウド取り込みでは復活しない', () async {
+    final repo = RouteRepository.instance;
+    await repo.ensureSeeded();
+    final log = await _addLog(repo, 'log_delete_6');
+
+    await repo.deleteRunLog(log);
+    expect(await repo.pendingRunLogDeletions(), contains(log.logId));
+
+    // 同期の pull が、クラウド側にまだ残っている同じ記録を取り込もうと
+    // した状況を再現する(削除の控えがある間はスキップされるはず)。
+    await repo.upsertRunLog(log);
+
+    final remaining = await repo.getRunLogs();
+    expect(remaining.map((l) => l.logId), isNot(contains(log.logId)));
+    // 復活していないので、控えも引き続き残っている。
+    expect(await repo.pendingRunLogDeletions(), contains(log.logId));
+  });
 }
