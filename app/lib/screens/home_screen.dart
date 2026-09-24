@@ -177,42 +177,54 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildNoRouteState() {
     return Container(
       color: AppColors.bgSurface,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const RouteSignBadge(
-            routeNumber: null,
-            size: 72,
-            fontSize: 26,
-            color: AppColors.routeInactive,
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            '挑戦する国道が決まっていません',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '走った距離を積み上げる国道を選ぶと、ここに進捗が出ます。',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.6),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: GradientButton(
-              height: 48,
-              onPressed: _handleChangeRoute,
-              child: const Text(
-                '国道を選ぶ',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+      // 横向きや画面の小さい端末でもはみ出さないよう、スクロールできる形にする。
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const RouteSignBadge(
+                routeNumber: null,
+                size: 72,
+                fontSize: 26,
+                color: AppColors.routeInactive,
               ),
-            ),
+              const SizedBox(height: 20),
+              const Text(
+                '挑戦する国道が決まっていません',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '走った距離を積み上げる国道を選ぶと、ここに進捗が出ます。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.6),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: GradientButton(
+                  height: 48,
+                  onPressed: _handleChangeRoute,
+                  child: const Text(
+                    '国道を選ぶ',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

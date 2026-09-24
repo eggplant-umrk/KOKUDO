@@ -91,7 +91,24 @@ class _RouteSetupGateState extends State<RouteSetupGate> {
     _check();
   }
 
+  /// クラウドからの取り込みを待つ上限。
+  ///
+  /// 圏外だと Firestore の読み書きはオンラインに戻るまで終わらないので、
+  /// 待ちっぱなしにはしない。時間切れのときは端末内の記録だけで判断する。
+  static const Duration _syncWaitLimit = Duration(seconds: 8);
+
+  /// クラウドからの取り込みを待ってから、挑戦中の国道があるか判断する。
+  ///
+  /// ログイン画面が投げた同期と競争すると、クラウドに進捗があるのに
+  /// 「未選択」と判断して、機種変更・再インストールの人にまで選択画面を
+  /// 出してしまう。しかもそこで選んだ内容は明示的な選択として保存される
+  /// ため、あとから届いた本来の進捗より優先されてしまう。
   Future<void> _check() async {
+    try {
+      await FirestoreSyncRepository.instance.syncNow().timeout(_syncWaitLimit);
+    } catch (_) {
+      // 同期できなくても、端末内の記録だけで判断して先へ進める。
+    }
     final routeId = await RouteRepository.instance.getActiveRouteId();
     if (!mounted) return;
     setState(() {
@@ -105,7 +122,19 @@ class _RouteSetupGateState extends State<RouteSetupGate> {
     if (_loading) {
       return const Scaffold(
         backgroundColor: AppColors.bgSurface,
-        body: Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: AppColors.routeSignBlue),
+              SizedBox(height: 16),
+              Text(
+                '記録を読み込んでいます…',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
       );
     }
     if (!_hasActiveRoute) {

@@ -30,7 +30,11 @@ class ChangeRouteScreen extends StatefulWidget {
   /// [firstRun] のときに、路線を選び終えたことを親へ伝える。
   final VoidCallback? onSelected;
 
-  const ChangeRouteScreen({super.key, this.firstRun = false, this.onSelected});
+  const ChangeRouteScreen({super.key, this.firstRun = false, this.onSelected})
+      : assert(
+          !firstRun || onSelected != null,
+          'firstRun のときは、選び終えたことを親へ伝える onSelected が要る',
+        );
 
   @override
   State<ChangeRouteScreen> createState() => _ChangeRouteScreenState();
@@ -86,7 +90,20 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
     // 初回はまだ何にも挑戦していないので、確認を挟まずそのまま始める。
     if (widget.firstRun) {
       setState(() => _switching = true);
-      await _repo.setActiveRoute(route.routeId);
+      try {
+        await _repo.setActiveRoute(route.routeId);
+      } catch (_) {
+        // 初回は戻る手段が無いので、黙って固まらせない。
+        if (!mounted) return;
+        setState(() => _switching = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('選択を保存できませんでした。もう一度お試しください。'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       widget.onSelected?.call();
       return;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
@@ -20,18 +22,29 @@ class FirestoreSyncRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final RouteRepository _routeRepository = RouteRepository.instance;
 
-  bool _syncing = false;
+  /// 実行中の同期。[deleteCloudData] も、自分が走っている間はここに自分の
+  /// Futureを入れて同期を止める(同期と削除は同時に走らせない)。
+  Future<void>? _inFlight;
 
   /// アカウント削除のとき、進行中の同期の終了を待つ上限。
   static const Duration _syncWaitLimit = Duration(seconds: 5);
 
   /// ログイン中のユーザーについて、ローカル⇔クラウドの同期を1回実行する。
-  /// 未ログイン時、または既に同期処理が進行中の場合は何もしない。
-  Future<void> syncNow() async {
+  /// 未ログイン時は何もしない。既に同期が進行中なら、新しく走らせる代わりに
+  /// その同期の完了を待つ。
+  ///
+  /// 以前は進行中なら即座に戻っていた(Issue #34)。呼び出し側からは同期が
+  /// 済んだように見えるため、ログイン直後に同期を投げたまま進捗を読むと、
+  /// クラウドの記録が届く前に「記録なし」と判断してしまっていた。
+  Future<void> syncNow() {
     final uid = AuthRepository.instance.currentUser?.uid;
-    if (uid == null || _syncing) return;
+    if (uid == null) return Future<void>.value();
+    return _inFlight ??= _runSync(uid).whenComplete(() => _inFlight = null);
+  }
 
-    _syncing = true;
+  /// 同期の本体。失敗しても呼び出し側は止めない(次の同期でやり直す)ので、
+  /// ここで握りつぶしてログに残すだけにする。
+  Future<void> _runSync(String uid) async {
     try {
       // 未ログイン時の初期シード・記録があれば現在のUIDに移行
       await _routeRepository.migrateFallbackUserIfNeeded(uid);
@@ -42,8 +55,6 @@ class FirestoreSyncRepository {
       await _pullCloudToLocal(uid, skipRunLogIds: deletedLogIds);
     } catch (e, stackTrace) {
       debugPrint('FirestoreSyncRepository.syncNow error: $e\n$stackTrace');
-    } finally {
-      _syncing = false;
     }
   }
 
@@ -82,13 +93,15 @@ class FirestoreSyncRepository {
   /// 取り残されてしまう)。
   Future<void> deleteCloudData(String uid) async {
     final deadline = DateTime.now().add(_syncWaitLimit);
-    while (_syncing) {
+    while (_inFlight != null) {
       if (!DateTime.now().isBefore(deadline)) {
         throw const AccountDeletionException(AccountDeletionFailure.syncBusy);
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-    _syncing = true;
+    // 削除している間に同期が走り出さないよう、自分を「実行中」として登録する。
+    final done = Completer<void>();
+    _inFlight = done.future;
     try {
       final operations = <void Function(WriteBatch batch)>[];
       for (final collection in [_progressCollection(uid), _runLogsCollection(uid)]) {
@@ -100,7 +113,8 @@ class FirestoreSyncRepository {
       operations.add((batch) => batch.delete(_firestore.collection('users').doc(uid)));
       await _commitInBatches(operations);
     } finally {
-      _syncing = false;
+      _inFlight = null;
+      done.complete();
     }
   }
 
