@@ -16,7 +16,8 @@ class AppDatabase {
   static const _dbName = 'kokudo.db';
   // v2: user_route_progress に updated_at を追加(Firestore同期のマージ判定用)。
   // v3: 「挑戦する国道を変更」機能用に app_settings テーブルを追加。
-  static const _dbVersion = 3;
+  // v4: 削除した走行記録をクラウドへ伝えるため deleted_run_logs テーブルを追加。
+  static const _dbVersion = 4;
 
   Database? _db;
 
@@ -68,6 +69,9 @@ class AppDatabase {
         }
         if (oldVersion < 3) {
           await db.execute(_appSettingsTableStatement);
+        }
+        if (oldVersion < 4) {
+          await db.execute(_deletedRunLogsTableStatement);
         }
       },
     );
@@ -138,6 +142,7 @@ class AppDatabase {
       ON run_logs(user_id, route_id)
     ''',
     _appSettingsTableStatement,
+    _deletedRunLogsTableStatement,
   ];
 
   /// 「挑戦する国道を変更」で選んだ路線IDなど、単一ユーザー分の
@@ -146,6 +151,22 @@ class AppDatabase {
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    )
+    ''';
+
+  /// 削除した走行記録の控え。同期のときにクラウド側からも消すために使う。
+  ///
+  /// 同期は push のあとに pull をするので、ローカルで消しただけでは
+  /// クラウドに残った同じ記録が次の同期で戻ってくる。かといって
+  /// 「ローカルに無いものはクラウドから消す」方式にすると、新しい端末で
+  /// ログインした直後(ローカルがまだ空)の push でクラウド側を全部
+  /// 消してしまいかねない。そこで「消した」という事実だけをここに残し、
+  /// 同期のときにその分だけクラウドからも消して、消し終えた行は片付ける。
+  static const String _deletedRunLogsTableStatement = '''
+    CREATE TABLE IF NOT EXISTS deleted_run_logs (
+      log_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL
     )
     ''';
 }
