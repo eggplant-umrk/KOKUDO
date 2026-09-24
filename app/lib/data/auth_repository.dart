@@ -102,12 +102,26 @@ class AuthRepository {
   /// 失敗しても待ち続けても、ログアウト自体は成立させる。
   Future<void> signOut() async {
     await _auth.signOut();
+    await _signOutGoogleBestEffort();
+  }
+
+  /// Google側のサインアウト。失敗しても、返ってこなくても、呼び出し側は
+  /// 止めない。
+  ///
+  /// タイムアウトは初期化の手前から掛ける。止まりうるのは signOut() だけで
+  /// なく initialize() も同じで、そこだけ無防備だと結局固まるため
+  /// (PR #38 レビュー指摘)。
+  Future<void> _signOutGoogleBestEffort() async {
     try {
-      await _ensureGoogleSignInInitialized();
-      await _googleSignIn.signOut().timeout(_googleSignOutTimeout);
+      await _signOutGoogle().timeout(_googleSignOutTimeout);
     } catch (_) {
       // Googleのアカウント選択状態が残るだけなので、ここでは何もしない。
     }
+  }
+
+  Future<void> _signOutGoogle() async {
+    await _ensureGoogleSignInInitialized();
+    await _googleSignIn.signOut();
   }
 
   /// Google側のサインアウトを待つ上限。戻ってこない実装を踏んでも
@@ -124,6 +138,11 @@ class AuthRepository {
   /// 別のアカウントが選ばれた、の3通り)。
   ///
   /// 成功すると authStateChanges が null を流し、AuthGate がログイン画面に戻す。
+  ///
+  /// 最後のGoogle側サインアウトは [_signOutGoogleBestEffort] を通す。ここで
+  /// 例外が漏れると、呼び出し元(AccountService)が「認証を消せなかった=まだ
+  /// ログイン中」と誤判定し、実際には削除できているのに「失敗しました」と
+  /// 伝えたうえで端末内の記録を消さずに残してしまう(PR #38 レビュー指摘)。
   Future<void> deleteCurrentUser() async {
     final user = _auth.currentUser;
     if (user == null) return;
@@ -134,7 +153,7 @@ class AuthRepository {
       await _reauthenticateWithGoogle(user);
       await user.delete();
     }
-    await _googleSignIn.signOut();
+    await _signOutGoogleBestEffort();
   }
 
   Future<void> _reauthenticateWithGoogle(User user) async {
