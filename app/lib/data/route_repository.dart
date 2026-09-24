@@ -55,6 +55,12 @@ class RouteRepository {
         where: 'user_id = ?',
         whereArgs: [fallbackUserId],
       );
+      await db.update(
+        'deleted_run_logs',
+        {'user_id': newUid},
+        where: 'user_id = ?',
+        whereArgs: [fallbackUserId],
+      );
     }
   }
 
@@ -94,6 +100,10 @@ class RouteRepository {
       // 利用者のものなので一緒に消す。
       await txn.delete('user_route_progress', where: 'user_id = ?', whereArgs: [fallbackUserId]);
       await txn.delete('run_logs', where: 'user_id = ?', whereArgs: [fallbackUserId]);
+      // 削除の控えも消す。アカウントごと消すので、クラウドへ伝える相手が
+      // もう居ない(クラウド側は deleteCloudData がまとめて消している)。
+      await txn.delete('deleted_run_logs', where: 'user_id = ?', whereArgs: [uid]);
+      await txn.delete('deleted_run_logs', where: 'user_id = ?', whereArgs: [fallbackUserId]);
       await txn.delete('app_settings', where: 'key = ?', whereArgs: [_activeRouteIdSettingKey]);
     });
   }
@@ -364,10 +374,49 @@ class RouteRepository {
   }
 
   /// 走行記録を削除する。対象路線の進捗からもその分の距離を差し引く。
+  ///
+  /// 「消した」という控えを deleted_run_logs に残す。これが無いと、次の
+  /// 同期の pull でクラウドに残っている同じ記録がローカルへ戻ってくる。
   Future<void> deleteRunLog(RunLog log) async {
     final db = await _db;
-    await db.delete('run_logs', where: 'log_id = ?', whereArgs: [log.logId]);
+    await db.transaction((txn) async {
+      await txn.delete('run_logs', where: 'log_id = ?', whereArgs: [log.logId]);
+      await txn.insert(
+        'deleted_run_logs',
+        {
+          'log_id': log.logId,
+          'user_id': currentUserId,
+          'deleted_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
     await _adjustProgress(log.routeId, -log.distanceKm);
+  }
+
+  /// まだクラウドへ伝えていない「削除した走行記録」のID。
+  ///
+  /// ログイン前に消した記録は [fallbackUserId] のまま残っていることが
+  /// あるので、そちらも拾う(ログイン時の移行が失敗していても取りこぼさない)。
+  Future<List<String>> pendingRunLogDeletions() async {
+    final db = await _db;
+    final rows = await db.query(
+      'deleted_run_logs',
+      columns: ['log_id'],
+      where: 'user_id IN (?, ?)',
+      whereArgs: [currentUserId, fallbackUserId],
+    );
+    return rows.map((row) => row['log_id'] as String).toList();
+  }
+
+  /// クラウドから消し終えた控えを片付ける。
+  /// 消せなかった分は残しておき、次の同期でもう一度試す。
+  Future<void> clearRunLogDeletions(Iterable<String> logIds) async {
+    final ids = logIds.toList();
+    if (ids.isEmpty) return;
+    final db = await _db;
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.delete('deleted_run_logs', where: 'log_id IN ($placeholders)', whereArgs: ids);
   }
 
   /// [routeId]の進捗(currentDistanceKm)に[deltaKm]を加算し、完走判定を
@@ -379,7 +428,6 @@ class RouteRepository {
     final route = await getRoute(routeId);
     final rawDistance = existing.currentDistanceKm + deltaKm;
     final newDistance = rawDistance < 0 ? 0.0 : rawDistance;
-    // 路線が見つからない場合は総距離0として扱い、完走にはならない。
     final totalKm = route?.totalDistanceKm ?? 0;
     final isCompleted = totalKm > 0 && newDistance >= totalKm;
 

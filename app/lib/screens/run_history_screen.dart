@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/firestore_sync_repository.dart';
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/run_log.dart';
@@ -105,6 +108,8 @@ class _RunHistoryScreenState extends State<RunHistoryScreen> {
 
     if (result.delete) {
       await _repo.deleteRunLog(log);
+      // 削除をクラウドにも伝える。待たないのは追加のときと同じ理由。
+      unawaited(FirestoreSyncRepository.instance.syncNow());
       if (!mounted) return;
       await _load();
       if (!mounted) return;
@@ -121,6 +126,7 @@ class _RunHistoryScreenState extends State<RunHistoryScreen> {
       durationSeconds: result.durationSeconds,
       caloriesBurned: log.caloriesBurned ?? 0,
     );
+    unawaited(FirestoreSyncRepository.instance.syncNow());
     if (!mounted) return;
     await _load();
     if (!mounted) return;

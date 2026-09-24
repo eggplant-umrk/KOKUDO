@@ -35,8 +35,11 @@ class FirestoreSyncRepository {
     try {
       // 未ログイン時の初期シード・記録があれば現在のUIDに移行
       await _routeRepository.migrateFallbackUserIfNeeded(uid);
+      // 削除をいちばん先にクラウドへ伝える。あとの pull で消した記録が
+      // 戻ってこないようにするため。
+      final deletedLogIds = await _pushDeletionsToCloud(uid);
       await _pushLocalToCloud(uid);
-      await _pullCloudToLocal(uid);
+      await _pullCloudToLocal(uid, skipRunLogIds: deletedLogIds);
     } catch (e, stackTrace) {
       debugPrint('FirestoreSyncRepository.syncNow error: $e\n$stackTrace');
     } finally {
@@ -101,6 +104,25 @@ class FirestoreSyncRepository {
     }
   }
 
+  /// ローカルで削除された走行記録を、クラウド側からも消す。
+  ///
+  /// 消し終えた控えは片付ける。commitに失敗した場合は控えを残したまま
+  /// 例外が上がり、[syncNow] が同期ごと中断するので、次の同期でやり直す。
+  /// 戻り値は今回消したlogIdで、続く pull で弾くのに使う(削除が反映される
+  /// 前のスナップショットを読んでしまった場合の保険)。
+  Future<Set<String>> _pushDeletionsToCloud(String uid) async {
+    final logIds = await _routeRepository.pendingRunLogDeletions();
+    if (logIds.isEmpty) return const <String>{};
+
+    final operations = <void Function(WriteBatch batch)>[
+      for (final logId in logIds)
+        (batch) => batch.delete(_runLogsCollection(uid).doc(logId)),
+    ];
+    await _commitInBatches(operations);
+    await _routeRepository.clearRunLogDeletions(logIds);
+    return logIds.toSet();
+  }
+
   /// ローカルSQLiteの内容をFirestoreへ書き込む。
   ///
   /// N+1クエリを防ぐため、コレクション全体を1回のget()で取得してメモリ上で比較する。
@@ -150,7 +172,7 @@ class FirestoreSyncRepository {
 
   /// Firestore側の内容をローカルSQLiteへ反映する。
   /// クラウド側のデータで無条件に上書きせず、ローカルのupdatedAtと比較してから取り込む。
-  Future<void> _pullCloudToLocal(String uid) async {
+  Future<void> _pullCloudToLocal(String uid, {Set<String> skipRunLogIds = const <String>{}}) async {
     final progressSnapshot = await _progressCollection(uid).get();
     final localProgressList = await _routeRepository.getAllProgress();
     final localProgressMap = {for (final p in localProgressList) p.routeId: p};
@@ -167,6 +189,8 @@ class FirestoreSyncRepository {
 
     final runLogsSnapshot = await _runLogsCollection(uid).get();
     for (final doc in runLogsSnapshot.docs) {
+      // 今しがた消したばかりの記録は取り込まない。
+      if (skipRunLogIds.contains(doc.id)) continue;
       await _routeRepository.upsertRunLog(RunLog.fromMap(doc.data()));
     }
   }

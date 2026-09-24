@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../data/firestore_sync_repository.dart';
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
 import '../models/route_checkpoint.dart';
@@ -149,6 +152,9 @@ class _HomeScreenState extends State<HomeScreen> {
       durationSeconds: result.durationSeconds,
       caloriesBurned: caloriesBurned,
     );
+    // 手入力の記録も計測と同じようにクラウドへ上げる。失敗しても次回の
+    // 同期で拾われるので、ここでは待たない。
+    unawaited(FirestoreSyncRepository.instance.syncNow());
 
     if (!mounted) return;
     await _load();
