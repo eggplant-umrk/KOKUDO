@@ -6,7 +6,9 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'data/auth_repository.dart';
 import 'data/firestore_sync_repository.dart';
+import 'data/route_repository.dart';
 import 'models/run_log.dart';
+import 'screens/change_route_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_collection_screen.dart';
@@ -57,9 +59,62 @@ class AuthGate extends StatelessWidget {
         if (snapshot.data == null) {
           return const LoginScreen();
         }
-        return const RootShell();
+        return const RouteSetupGate();
       },
     );
+  }
+}
+
+/// 挑戦する国道が決まるまで、本体(ボトムナビ)の代わりに選択画面を出すゲート。
+///
+/// デモデータの初期投入を取りやめたため、初めてログインした人は挑戦中の
+/// 国道を1つも持っていない。何も選ばれていないまま本体を出すと、ホームに
+/// 出すものが無い。そこでここで先に選んでもらう。
+///
+/// 一度選べば app_settings に残るので、次回以降はこのゲートを素通りする。
+/// 挑戦していた路線を完走して次が未選択になった場合は、起動し直したときに
+/// ここへ来る(アプリを開いたままなら、ホーム画面側が選び直しを促す)。
+class RouteSetupGate extends StatefulWidget {
+  const RouteSetupGate({super.key});
+
+  @override
+  State<RouteSetupGate> createState() => _RouteSetupGateState();
+}
+
+class _RouteSetupGateState extends State<RouteSetupGate> {
+  bool _loading = true;
+  bool _hasActiveRoute = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final routeId = await RouteRepository.instance.getActiveRouteId();
+    if (!mounted) return;
+    setState(() {
+      _hasActiveRoute = routeId != null;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: AppColors.bgSurface,
+        body: Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
+      );
+    }
+    if (!_hasActiveRoute) {
+      return ChangeRouteScreen(
+        firstRun: true,
+        onSelected: () => setState(() => _hasActiveRoute = true),
+      );
+    }
+    return const RootShell();
   }
 }
 

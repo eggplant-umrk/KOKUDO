@@ -13,6 +13,7 @@ import '../utils/pace_utils.dart';
 import '../widgets/completion_celebration.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/hero_stage.dart';
+import '../widgets/route_sign_badge.dart';
 import '../widgets/stat_tile.dart';
 import 'change_route_screen.dart';
 
@@ -44,8 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _load() async {
     final routeId = await _repo.getActiveRouteId();
-    final route = await _repo.getRoute(routeId);
-    final progress = await _repo.getProgress(routeId);
+    final route = routeId == null ? null : await _repo.getRoute(routeId);
+    final progress = routeId == null ? null : await _repo.getProgress(routeId);
     final today = await _repo.todayTotalDistanceKm();
     final month = await _repo.monthTotalDistanceKm();
     final streakDays = await _repo.currentStreakDays();
@@ -169,14 +170,62 @@ class _HomeScreenState extends State<HomeScreen> {
     if (justCompleted) await showCompletionCelebration(context, route);
   }
 
+  /// 挑戦する国道がまだ決まっていないときの表示。
+  ///
+  /// 起動時なら [RouteSetupGate] が先に選ばせるのでここには来ないが、
+  /// アプリを開いたまま路線を完走すると次が未選択になるため、その受け皿。
+  Widget _buildNoRouteState() {
+    return Container(
+      color: AppColors.bgSurface,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const RouteSignBadge(
+            routeNumber: null,
+            size: 72,
+            fontSize: 26,
+            color: AppColors.routeInactive,
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            '挑戦する国道が決まっていません',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '走った距離を積み上げる国道を選ぶと、ここに進捗が出ます。',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.6),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: GradientButton(
+              height: 48,
+              onPressed: _handleChangeRoute,
+              child: const Text(
+                '国道を選ぶ',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_loading || _route == null) {
+    if (_loading) {
       return Container(
         color: AppColors.bgSurface,
         child: const Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
       );
     }
+    if (_route == null) return _buildNoRouteState();
 
     final route = _route!;
     final currentDistanceKm = _progress?.currentDistanceKm ?? 0;

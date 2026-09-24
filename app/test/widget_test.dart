@@ -80,18 +80,26 @@ void main() {
   });
 
   testWidgets('Home screen shows the start running button', (WidgetTester tester) async {
-    await _pumpAppAndWaitForLoad(tester);
+    await _pumpAppAndWaitForLoad(tester, activeRouteId: '1');
 
     expect(find.text('ランニング開始'), findsOneWidget);
   });
 
   testWidgets('Root shell shows the bottom navigation with four tabs', (WidgetTester tester) async {
-    await _pumpAppAndWaitForLoad(tester);
+    await _pumpAppAndWaitForLoad(tester, activeRouteId: '1');
 
     expect(find.byType(NavigationBar), findsOneWidget);
     for (final label in ['ホーム', '計測', '記録', '地図']) {
       expect(find.widgetWithText(NavigationDestination, label), findsOneWidget);
     }
+  });
+
+  testWidgets('挑戦する国道が未選択なら、本体の前に選択画面が出る', (WidgetTester tester) async {
+    // 挑戦する国道を決めずに起動する(初めてログインした人と同じ状態)。
+    await _pumpAppAndWaitForLoad(tester);
+
+    expect(find.text('挑戦する国道を選ぶ'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
   });
 }
 
@@ -110,8 +118,15 @@ void main() {
 /// pumpWidget自体もrunAsync内で行っているため、ポーリングループも
 /// runAsync内で完結させ、ループの各周でtester.pump()を呼んで
 /// setState()の反映を都度フレームに反映させている。
-Future<void> _pumpAppAndWaitForLoad(WidgetTester tester) async {
+///
+/// [activeRouteId] を渡すと、アプリを起動する前に「挑戦する国道」を決めて
+/// おく。デモデータの初期投入を取りやめたため、何も決まっていないと
+/// RouteSetupGate が選択画面を出して本体(ボトムナビ)まで進まない。
+Future<void> _pumpAppAndWaitForLoad(WidgetTester tester, {String? activeRouteId}) async {
   await tester.runAsync(() async {
+    if (activeRouteId != null) {
+      await RouteRepository.instance.setActiveRoute(activeRouteId);
+    }
     await tester.pumpWidget(const KokudoRunApp());
     final deadline = DateTime.now().add(const Duration(seconds: 60));
     while (DateTime.now().isBefore(deadline) &&
