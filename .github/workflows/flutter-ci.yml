@@ -1,0 +1,42 @@
+# プルリクエストと main への push で、解析とテストを回す。
+#
+# これが無いと「著者が手元で通した」という自己申告しか検証手段が無い。
+# レビュアーの手元に Flutter SDK が無いこともあるため、リポジトリ側で
+# 一律に回す(PR #36〜38 のレビュー指摘)。
+name: Flutter CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# 同じブランチに続けて push したときは、古い実行を止める。
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # pub のダウンロードを実行間でキャッシュする。
+          cache: true
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      - name: flutter test
+        run: flutter test
