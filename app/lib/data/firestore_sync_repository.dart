@@ -20,18 +20,52 @@ class FirestoreSyncRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final RouteRepository _routeRepository = RouteRepository.instance;
 
-  bool _syncing = false;
+  /// 実行中の同期と、その持ち主のuid。
+  ///
+  /// uidを一緒に覚えておくのは、別のユーザーの同期を「自分の同期が済んだ」と
+  /// 取り違えないため。Aさんの同期が走っている最中にログアウトしてBさんで
+  /// 入り直すと、uidを見ないかぎりBさんの呼び出しにAさんのFutureを返して
+  /// しまい、Bさんのデータが1件も降りていないのに完了したように見える。
+  Future<void>? _inFlight;
+  String? _inFlightUid;
+
+  /// アカウント削除の実行中かどうか。この間の同期は何もせずに戻る。
+  /// 待って走らせると、[deleteCloudData] が消したそばからローカルの記録を
+  /// クラウドへ書き戻してしまうため。
+  bool _deleting = false;
 
   /// アカウント削除のとき、進行中の同期の終了を待つ上限。
   static const Duration _syncWaitLimit = Duration(seconds: 5);
 
   /// ログイン中のユーザーについて、ローカル⇔クラウドの同期を1回実行する。
-  /// 未ログイン時、または既に同期処理が進行中の場合は何もしない。
-  Future<void> syncNow() async {
+  /// 未ログイン時とアカウント削除中は何もしない。同じユーザーの同期が既に
+  /// 進行中なら、新しく走らせる代わりにその完了を待つ。
+  ///
+  /// 以前は進行中なら即座に戻っていた(Issue #34)。呼び出し側からは同期が
+  /// 済んだように見えるため、ログイン直後に同期を投げたまま進捗を読むと、
+  /// クラウドの記録が届く前に「記録なし」と判断してしまっていた。
+  Future<void> syncNow() {
+    if (_deleting) return Future<void>.value();
     final uid = AuthRepository.instance.currentUser?.uid;
-    if (uid == null || _syncing) return;
+    if (uid == null) return Future<void>.value();
 
-    _syncing = true;
+    final running = _inFlight;
+    if (running != null) {
+      if (_inFlightUid == uid) return running;
+      // 別のユーザーの同期が走っている。終わるのを待ってから自分の分を始める。
+      return running.then((_) => syncNow());
+    }
+
+    _inFlightUid = uid;
+    return _inFlight = _runSync(uid).whenComplete(() {
+      _inFlight = null;
+      _inFlightUid = null;
+    });
+  }
+
+  /// 同期の本体。失敗しても呼び出し側は止めない(次の同期でやり直す)ので、
+  /// ここで握りつぶしてログに残すだけにする。
+  Future<void> _runSync(String uid) async {
     try {
       // 未ログイン時の初期シード・記録があれば現在のUIDに移行
       await _routeRepository.migrateFallbackUserIfNeeded(uid);
@@ -42,8 +76,6 @@ class FirestoreSyncRepository {
       await _pullCloudToLocal(uid, skipRunLogIds: deletedLogIds);
     } catch (e, stackTrace) {
       debugPrint('FirestoreSyncRepository.syncNow error: $e\n$stackTrace');
-    } finally {
-      _syncing = false;
     }
   }
 
@@ -82,13 +114,14 @@ class FirestoreSyncRepository {
   /// 取り残されてしまう)。
   Future<void> deleteCloudData(String uid) async {
     final deadline = DateTime.now().add(_syncWaitLimit);
-    while (_syncing) {
+    while (_inFlight != null) {
       if (!DateTime.now().isBefore(deadline)) {
         throw const AccountDeletionException(AccountDeletionFailure.syncBusy);
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
-    _syncing = true;
+    // 削除している間、同期は何もせずに戻る(消したそばから書き戻さないため)。
+    _deleting = true;
     try {
       final operations = <void Function(WriteBatch batch)>[];
       for (final collection in [_progressCollection(uid), _runLogsCollection(uid)]) {
@@ -100,7 +133,7 @@ class FirestoreSyncRepository {
       operations.add((batch) => batch.delete(_firestore.collection('users').doc(uid)));
       await _commitInBatches(operations);
     } finally {
-      _syncing = false;
+      _deleting = false;
     }
   }
 
