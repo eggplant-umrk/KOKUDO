@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/national_route.dart';
+import '../screens/share_completion_screen.dart';
 import '../theme/app_colors.dart';
 import 'gradient_button.dart';
 import 'route_sign_badge.dart';
@@ -91,6 +92,14 @@ class _CelebrationCard extends StatelessWidget {
   final NationalRoute route;
   const _CelebrationCard({required this.route});
 
+  /// お祝いを閉じてから共有画面を開く。
+  /// 閉じた後の [context] は使えないので、先に Navigator を取っておく。
+  void _openShare(BuildContext context) {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    navigator.pop();
+    pushShareCompletion(navigator, route);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -129,10 +138,25 @@ class _CelebrationCard extends StatelessWidget {
               width: double.infinity,
               child: GradientButton(
                 height: 48,
+                onPressed: () => _openShare(context),
+                child: const Text(
+                  'SNSでシェア',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
                 onPressed: () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44),
+                  foregroundColor: AppColors.textSecondary,
+                ),
                 child: const Text(
                   '閉じる',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15),
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                 ),
               ),
             ),
