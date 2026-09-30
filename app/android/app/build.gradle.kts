@@ -35,8 +35,18 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.eggplantumrk.kokudo.kokudo"
+        // Google Play 上でこのアプリを一意に指すID。公開後は変更できず、
+        // ストアのURL(play.google.com/store/apps/details?id=...)にも出る。
+        //
+        // 以前は Flutter がプロジェクト作成時に自動で付けた
+        // com.eggplantumrk.kokudo.kokudo だった(GitHubの組織名由来で、
+        // kokudo が2回入っていた)。Play Console 側のアプリ枠はこちらの名前で
+        // 登録されているので、そちらに合わせる。
+        //
+        // 上の namespace はビルド時にだけ使う内部的な名前空間で、これとは
+        // 別物。変えると Kotlin のパッケージ宣言まで動かすことになるので
+        // 据え置く。2つが違っていても問題はない。
+        applicationId = "com.zerotomedapp.KOKUDO"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
