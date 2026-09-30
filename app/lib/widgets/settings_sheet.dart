@@ -84,7 +84,7 @@ class _SettingsSheet extends StatelessWidget {
             title: const Text('ログアウト', style: TextStyle(fontWeight: FontWeight.w700)),
             onTap: () {
               Navigator.of(context).pop();
-              AuthRepository.instance.signOut();
+              unawaited(_signOut(parentContext));
             },
           ),
           ListTile(
@@ -104,6 +104,30 @@ class _SettingsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+}
+
+/// ログアウトする。
+///
+/// 成功すると authStateChanges が null を流し、AuthGate がログイン画面へ
+/// 戻すので、ここでは画面操作をしない。失敗したときだけ、黙って何も
+/// 起きないままにならないよう理由を知らせる。
+///
+/// [context] はシートを閉じた後も生きている、ホーム画面側の context を渡す。
+Future<void> _signOut(BuildContext context) async {
+  // await の前に取っておく。ログアウトが成功するとホーム画面の context が
+  // 消えるため、後から ScaffoldMessenger.of(context) を呼ぶと落ちる。
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await AuthRepository.instance.signOut();
+  } catch (_) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('ログアウトできませんでした。通信環境を確認して、もう一度お試しください。'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 6),
       ),
     );
   }
