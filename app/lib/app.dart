@@ -6,7 +6,9 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'data/auth_repository.dart';
 import 'data/firestore_sync_repository.dart';
+import 'data/route_repository.dart';
 import 'models/run_log.dart';
+import 'screens/change_route_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_collection_screen.dart';
@@ -57,9 +59,113 @@ class AuthGate extends StatelessWidget {
         if (snapshot.data == null) {
           return const LoginScreen();
         }
-        return const RootShell();
+        return const RouteSetupGate();
       },
     );
+  }
+}
+
+/// 挑戦する国道が決まるまで、本体(ボトムナビ)の代わりに選択画面を出すゲート。
+///
+/// デモデータの初期投入を取りやめたため、初めてログインした人は挑戦中の
+/// 国道を1つも持っていない。何も選ばれていないまま本体を出すと、ホームに
+/// 出すものが無い。そこでここで先に選んでもらう。
+///
+/// 一度選べば app_settings に残るので、次回以降はこのゲートを素通りする。
+/// 挑戦していた路線を完走して次が未選択になった場合は、起動し直したときに
+/// ここへ来る(アプリを開いたままなら、ホーム画面側が選び直しを促す)。
+class RouteSetupGate extends StatefulWidget {
+  const RouteSetupGate({super.key});
+
+  @override
+  State<RouteSetupGate> createState() => _RouteSetupGateState();
+}
+
+class _RouteSetupGateState extends State<RouteSetupGate> {
+  bool _loading = true;
+  bool _hasActiveRoute = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  /// クラウドからの取り込みを待つ上限。
+  ///
+  /// 圏外だと Firestore の読み書きはオンラインに戻るまで終わらないので、
+  /// 待ちっぱなしにはしない。時間切れのときは端末内の記録だけで判断する。
+  static const Duration _syncWaitLimit = Duration(seconds: 8);
+
+  /// 挑戦中の国道があるか判断する。
+  ///
+  /// 端末内に無いときだけ、クラウドからの取り込みを待ってから見直す。
+  /// ログイン画面が投げた同期と競争すると、クラウドに進捗があるのに
+  /// 「未選択」と判断して、機種変更・再インストールの人にまで選択画面を
+  /// 出してしまう。しかもそこで選んだ内容は明示的な選択として保存される
+  /// ため、あとから届いた本来の進捗より優先されてしまう。
+  ///
+  /// 逆に、端末内に既にあるなら待つ理由が無い。無条件に待つと、毎日使って
+  /// いる人まで起動のたびに同期の完了を待たされることになる(同期は従来
+  /// どおり裏で走り続ける)。
+  Future<void> _check() async {
+    var routeId = await _readActiveRouteId();
+    if (routeId == null) {
+      try {
+        await FirestoreSyncRepository.instance.syncNow().timeout(_syncWaitLimit);
+      } catch (_) {
+        // 同期できなくても、端末内の記録だけで判断して先へ進める。
+      }
+      routeId = await _readActiveRouteId();
+    }
+    if (!mounted) return;
+    setState(() {
+      _hasActiveRoute = routeId != null;
+      _loading = false;
+    });
+  }
+
+  /// 端末内の「挑戦中の国道」を読む。読めなければ null を返す。
+  ///
+  /// 例外をそのまま上げるとローディング表示のまま固まってしまう。この画面は
+  /// 戻る手段が無いので、読めないときは選択画面へ進める。そこで選び直せる
+  /// し、保存にも失敗すれば ChangeRouteScreen 側が理由を出す
+  /// (PR #37 レビュー指摘)。
+  Future<String?> _readActiveRouteId() async {
+    try {
+      return await RouteRepository.instance.getActiveRouteId();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: AppColors.bgSurface,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: AppColors.routeSignBlue),
+              SizedBox(height: 16),
+              Text(
+                '記録を読み込んでいます…',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (!_hasActiveRoute) {
+      return ChangeRouteScreen(
+        firstRun: true,
+        onSelected: () => setState(() => _hasActiveRoute = true),
+      );
+    }
+    return const RootShell();
   }
 }
 

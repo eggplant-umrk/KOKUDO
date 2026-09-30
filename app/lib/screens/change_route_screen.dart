@@ -19,7 +19,22 @@ import '../widgets/route_sign_badge.dart';
 /// (再挑戦時にどう扱うかの仕様がまだ決まっていないため、ひとまず選択不可
 /// にして「選んだのに何も起きない」という混乱を避けている)。
 class ChangeRouteScreen extends StatefulWidget {
-  const ChangeRouteScreen({super.key});
+  /// 初回起動(まだ挑戦する国道が一度も決まっていない)かどうか。
+  ///
+  /// trueのときは戻る手段を出さず、切り替えの確認ダイアログも出さない
+  /// (切り替え元が無いので聞くことが無い)。選び終えたら [onSelected] を
+  /// 呼ぶだけで、この画面自身はpopしない(押し出したのがNavigatorではなく
+  /// [RouteSetupGate] のため)。
+  final bool firstRun;
+
+  /// [firstRun] のときに、路線を選び終えたことを親へ伝える。
+  final VoidCallback? onSelected;
+
+  const ChangeRouteScreen({super.key, this.firstRun = false, this.onSelected})
+      : assert(
+          !firstRun || onSelected != null,
+          'firstRun のときは、選び終えたことを親へ伝える onSelected が要る',
+        );
 
   @override
   State<ChangeRouteScreen> createState() => _ChangeRouteScreenState();
@@ -72,6 +87,28 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
   Future<void> _handleSelect(NationalRoute route) async {
     if (route.routeId == _activeRouteId || _switching) return;
 
+    // 初回はまだ何にも挑戦していないので、確認を挟まずそのまま始める。
+    if (widget.firstRun) {
+      setState(() => _switching = true);
+      try {
+        await _repo.setActiveRoute(route.routeId);
+      } catch (_) {
+        // 初回は戻る手段が無いので、黙って固まらせない。
+        if (!mounted) return;
+        setState(() => _switching = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('選択を保存できませんでした。もう一度お試しください。'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      widget.onSelected?.call();
+      return;
+    }
+
     final currentKm = _progressByRoute[route.routeId]?.currentDistanceKm ?? 0;
     final hasProgress = currentKm > 0;
     final confirmed = await showDialog<bool>(
@@ -105,31 +142,49 @@ class _ChangeRouteScreenState extends State<ChangeRouteScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bgSurface,
-      appBar: AppBar(
+    final firstRun = widget.firstRun;
+    return PopScope(
+      // 初回は国道を選ぶまで先に進めない(戻り先が無いため)。
+      canPop: !firstRun,
+      child: Scaffold(
         backgroundColor: AppColors.bgSurface,
-        elevation: 0,
-        foregroundColor: AppColors.textPrimary,
-        title: const Text('挑戦する国道を変更', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue))
-          : SafeArea(
-              top: false,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                    child: RouteSearchField(
-                      controller: _queryController,
-                      onChanged: (q) => setState(() => _query = q),
+        appBar: AppBar(
+          backgroundColor: AppColors.bgSurface,
+          elevation: 0,
+          foregroundColor: AppColors.textPrimary,
+          automaticallyImplyLeading: !firstRun,
+          title: Text(
+            firstRun ? '挑戦する国道を選ぶ' : '挑戦する国道を変更',
+            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          ),
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue))
+            : SafeArea(
+                top: false,
+                child: Column(
+                  children: [
+                    if (firstRun)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(20, 0, 20, 12),
+                        child: Text(
+                          '走った距離を積み上げる国道を1本選んでください。\n'
+                          'あとからいつでも変更できます。まずは短い路線から始めるのがおすすめです。',
+                          style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.6),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                      child: RouteSearchField(
+                        controller: _queryController,
+                        onChanged: (q) => setState(() => _query = q),
+                      ),
                     ),
-                  ),
-                  Expanded(child: _buildRouteList(_filteredRoutes)),
-                ],
+                    Expanded(child: _buildRouteList(_filteredRoutes)),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 

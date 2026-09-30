@@ -108,8 +108,8 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
 
   Future<void> _load() async {
     final routeId = await _repo.getActiveRouteId();
-    final route = await _repo.getRoute(routeId);
-    final progress = await _repo.getProgress(routeId);
+    final route = routeId == null ? null : await _repo.getRoute(routeId);
+    final progress = routeId == null ? null : await _repo.getProgress(routeId);
     if (!mounted) return;
     setState(() {
       _routeId = routeId;
@@ -333,10 +333,27 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    if (_loading || _route == null) {
+    if (_loading) {
       return const ColoredBox(
         color: Colors.black,
         child: Center(child: CircularProgressIndicator(color: AppColors.routeSignBlue)),
+      );
+    }
+    if (_route == null) {
+      // 挑戦する国道が決まっていないと、走った距離の積み上げ先が無い。
+      // ホームで選んでもらう(ここは完走直後に起きうる)。
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              'ホーム画面で挑戦する国道を選ぶと計測できます',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.6),
+            ),
+          ),
+        ),
       );
     }
 

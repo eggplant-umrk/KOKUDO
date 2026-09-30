@@ -7,7 +7,6 @@ import '../models/run_log.dart';
 import '../models/user_route_progress.dart';
 import 'app_database.dart';
 import 'auth_repository.dart';
-import 'mock_data.dart' as seed;
 import 'route_catalog.dart';
 
 /// [AppDatabase]（端末内SQLite）を実データソースとして扱うリポジトリ。
@@ -15,8 +14,9 @@ import 'route_catalog.dart';
 /// 国道のマスターデータ(全459路線)は同梱の `assets/routes/national_routes.json`
 /// ([RouteCatalog])を正とし、起動時にDBへ流し込む(JSONの version が上がったら
 /// 入れ直す)。バックエンド未接続の現段階では、進捗・走行ログが1件も無い初回起動時
-/// のみ mock_data.dart のデモ用の進捗・ログも書き込む。以降は画面からの読み書きは
-/// すべてこのクラス経由でSQLiteに対して行われる。
+/// 進捗・走行ログはすべてユーザー自身の操作から作られる(デモデータの初期投入は
+/// リリース前修正項目 1-1 で取り除いた)。画面からの読み書きはすべてこのクラス
+/// 経由でSQLiteに対して行われる。
 class RouteRepository {
   RouteRepository._();
 
@@ -130,7 +130,6 @@ class RouteRepository {
   Future<void> _seed() async {
     final db = await _db;
     await _syncRouteCatalog(db);
-    await _seedDemoDataIfEmpty(db);
   }
 
   /// DBに入れた路線マスターの版。JSON側の `version` と比べて入れ直しを判断する。
@@ -141,7 +140,7 @@ class RouteRepository {
   /// 同梱JSONの version がDBに記録した版と同じで、路線も入っていれば何もしない。
   /// 版が上がっていれば(距離を実延長に差し替えたときなど)全路線を入れ直す。
   /// 路線IDは変えないので、user_route_progress / run_logs はそのまま生きる。
-  /// 旧版(先行6路線をmock_dataからシードした端末)からの移行もこの処理で済む。
+  /// 旧版(先行6路線だけをDBに入れていた端末)からの移行もこの処理で済む。
   /// 完走済みの進捗は新しい総距離に合わせて距離を揃える(距離が変わって
   /// 「完走なのに93%」にならないように)。
   ///
@@ -205,29 +204,6 @@ class RouteRepository {
       );
       await batch.commit(noResult: true);
     });
-  }
-
-  /// 進捗も走行ログも1件も無い(=初回起動)ときだけ、mock_data.dart のデモ用の
-  /// 進捗・ログを書き込む。リリース前に取り除く予定(リリース前修正項目 1-1)。
-  Future<void> _seedDemoDataIfEmpty(Database db) async {
-    final progressCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM user_route_progress'),
-        ) ??
-        0;
-    final logCount = Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM run_logs'),
-        ) ??
-        0;
-    if (progressCount > 0 || logCount > 0) return;
-
-    final batch = db.batch();
-    for (final progress in seed.userProgress) {
-      batch.insert('user_route_progress', progress.toMap());
-    }
-    for (final log in seed.runLogs) {
-      batch.insert('run_logs', log.toMap());
-    }
-    await batch.commit(noResult: true);
   }
 
   Future<List<NationalRoute>> getRoutes() async {
@@ -514,13 +490,15 @@ class RouteRepository {
     );
   }
 
-  /// 現在「挑戦中」の路線IDを返す。
+  /// 現在「挑戦中」の路線IDを返す。まだ決まっていなければ null。
   /// 1. [setActiveRoute]でユーザーが明示的に選んだ路線があれば、それを優先する
   ///    (ただし既に完走済みになっていた場合は無視して2.以降にフォールバックする)
   /// 2. 進捗があり未完走の路線があればそれを使う(手動選択がまだ一度も
   ///    行われていない既存ユーザー向けの後方互換)
-  /// 3. どちらも無ければ、シードデータの初期アクティブ路線にフォールバックする
-  Future<String> getActiveRouteId() async {
+  /// 3. どちらも無ければ null を返す。初回起動のほか、挑戦していた路線を
+  ///    完走した直後もここに来る。呼び出し側で「次に挑戦する国道を選ぶ」
+  ///    画面へ促すこと。
+  Future<String?> getActiveRouteId() async {
     final overrideId = await _getSetting(_activeRouteIdSettingKey);
     if (overrideId != null) {
       final overrideProgress = await getProgress(overrideId);
@@ -535,7 +513,7 @@ class RouteRepository {
         return progress.routeId;
       }
     }
-    return seed.activeRouteId;
+    return null;
   }
 
   /// 「挑戦する国道を変更」から呼ぶ: 指定した路線を明示的にアクティブにする。
