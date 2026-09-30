@@ -21,8 +21,24 @@ class AppDatabase {
 
   Database? _db;
 
+  /// テスト専用。DBの置き場所を差し替える。
+  ///
+  /// `flutter test` はテストファイルごとに別プロセスで走るため、全部が
+  /// 同じDBファイルを開くと "database is locked" で落ちることがある。
+  /// テスト側で [inMemoryDatabasePath] を入れて、ファイルを共有しない
+  /// インメモリDBにする。
+  @visibleForTesting
+  static String? databasePathOverrideForTesting;
+
   Future<Database> get database async {
     return _db ??= await _open();
+  }
+
+  Future<String> _databasePath() async {
+    final override = databasePathOverrideForTesting;
+    if (override != null) return override;
+    final dbPath = await getDatabasesPath();
+    return join(dbPath, _dbName);
   }
 
   @visibleForTesting
@@ -39,17 +55,14 @@ class AppDatabase {
     // 「既に存在する列をもう一度追加しよう」として
     // duplicate column nameで失敗することがあったため
     // （PR #14でupdated_at列を追加した際に発覚）。
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
-    await databaseFactory.deleteDatabase(path);
+    await databaseFactory.deleteDatabase(await _databasePath());
   }
 
   Future<Database> _open() async {
     // Web版ではsqfliteの標準factoryが使えないため、IndexedDBベースの
     // factoryに差し替える（Android/iOS/デスクトップでは何もしない）。
     configureDatabaseFactory();
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
+    final path = await _databasePath();
     return openDatabase(
       path,
       version: _dbVersion,

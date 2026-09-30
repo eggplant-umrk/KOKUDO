@@ -53,6 +53,9 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    // テストファイルごとに別プロセスで走るので、同じDBファイルを共有すると
+    // "database is locked" になることがある。ファイルを使わないDBにする。
+    AppDatabase.databasePathOverrideForTesting = inMemoryDatabasePath;
   });
 
   setUp(() async {

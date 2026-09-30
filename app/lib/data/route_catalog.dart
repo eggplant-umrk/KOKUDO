@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:meta/meta.dart';
 
 import '../models/national_route.dart';
 import '../models/route_checkpoint.dart';
@@ -53,11 +54,21 @@ class RouteCatalog {
     await _loadPrefectureBounds();
 
     final raw = await rootBundle.loadString(assetPath);
-    final doc = jsonDecode(raw) as Map<String, dynamic>;
+    final routes = parseDocument(jsonDecode(raw) as Map<String, dynamic>);
+    _cache = routes;
+    return routes;
+  }
+
+  /// JSON全体(`{"version":..,"routes":[..]}`)から路線一覧を組み立てる。
+  ///
+  /// [load] の中身をそのまま切り出したもの。アセットを差し替えられない
+  /// テストから、壊れた路線が混ざったときの挙動を確かめるために公開している。
+  /// 1路線の不備で全路線が読めなくなるより、その路線だけ飛ばす。
+  @visibleForTesting
+  static List<NationalRoute> parseDocument(Map<String, dynamic> doc) {
     _version = (doc['version'] as num?)?.toInt() ?? 1;
     final routes = <NationalRoute>[];
     for (final item in (doc['routes'] as List? ?? const [])) {
-      // 1路線の不備で全路線が読めなくなるより、その路線だけ飛ばす。
       try {
         routes.add(_fromJson(item as Map<String, dynamic>));
       } catch (e) {
@@ -68,8 +79,17 @@ class RouteCatalog {
       }
     }
     routes.sort((a, b) => a.routeNumber.compareTo(b.routeNumber));
-    _cache = routes;
     return routes;
+  }
+
+  /// 読み込み済みの内容をすべて捨てる。テストごとにまっさらな状態から
+  /// 読み直せるようにするためのもの。
+  @visibleForTesting
+  static void resetForTesting() {
+    _cache = null;
+    _version = null;
+    _prefecturesByRoute.clear();
+    _prefectureBounds.clear();
   }
 
   static Future<void> _loadPrefectureBounds() async {
