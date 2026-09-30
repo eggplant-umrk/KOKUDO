@@ -24,6 +24,7 @@ GoogleService-Info.plist
 
 # 署名鍵・証明書
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
