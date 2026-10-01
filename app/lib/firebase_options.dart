@@ -51,7 +51,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDXtJG-vpDkjFNF6-vJPvmJEiBpaN_6MdY',
-    appId: '1:295789011058:android:5a5065eaf850c3bc8b22eb',
+    appId: '1:295789011058:android:0c8febbbb525735d8b22eb',
     messagingSenderId: '295789011058',
     projectId: 'kokudo-a54c4',
     storageBucket: 'kokudo-a54c4.firebasestorage.app',
