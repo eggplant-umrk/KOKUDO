@@ -7,7 +7,7 @@ library;
 
 const String privacyPolicyTitle = 'KOKUDO プライバシーポリシー';
 const String privacyPolicyRevised = '制定日: 2026年9月22日';
-const String privacyPolicyOperator = 'KOKUDO開発チーム';
+const String privacyPolicyOperator = '共通点ゼロの医療アプリ開発チーム';
 const String privacyPolicyContact = 'zerotomedapp@gmail.com';
 
 /// 見出しと本文の組。本文の各要素は1段落。
@@ -20,7 +20,7 @@ class PrivacyPolicySection {
 
 const List<PrivacyPolicySection> privacyPolicySections = [
   PrivacyPolicySection('はじめに', [
-    'KOKUDO開発チーム(以下「当チーム」)は、ランニングアプリ「KOKUDO」(以下「本アプリ」)における利用者の情報の取り扱いについて、以下のとおりプライバシーポリシーを定めます。',
+    '共通点ゼロの医療アプリ開発チーム(以下「当チーム」)は、ランニングアプリ「KOKUDO」(以下「本アプリ」)における利用者の情報の取り扱いについて、以下のとおりプライバシーポリシーを定めます。',
   ]),
   PrivacyPolicySection('1. 取得する情報', [
     '(1) アカウント情報: Googleアカウントでログインした際に、Firebase Authenticationを通じてユーザーID、メールアドレス、表示名、プロフィール画像のURLを取得します。',
