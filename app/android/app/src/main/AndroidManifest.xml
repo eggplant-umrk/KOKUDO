@@ -14,6 +14,10 @@
     <!-- 画面消灯中もCPUを起こしたまま測位を続けるため
          （ForegroundNotificationConfig.enableWakeLock = true に対応）。 -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- 計測中の常駐通知(「KOKUDO で計測中」)を表示するため。Android 13
+         (API 33) 以降はこの権限をユーザーに許可してもらわないと通知が
+         一切出ない。計測開始時に RunningScreen が要求する。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- 走破・地図コレクション画面の地図タイル取得（maplibre_gl）、Firestore等に必要 -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application

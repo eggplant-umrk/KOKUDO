@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
@@ -167,6 +168,28 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
     return true;
   }
 
+  /// 計測中の常駐通知を出すための許可を求める(Android 13 以降で必要)。
+  ///
+  /// Android 13 からは、アプリが明示的に許可を取らないと通知が一切表示
+  /// されない。フォアグラウンドサービス自体は通知なしでも動くので計測は
+  /// 続くが、「画面を消しても計測が続いている」ことをユーザーが知る手段が
+  /// 無くなる。Play の審査でも、位置情報を使うフォアグラウンドサービスは
+  /// ユーザーが認識できる状態で動くことを求められる。
+  ///
+  /// 断られても計測は止めない。通知が出ないだけで、距離の記録には影響しない。
+  /// Android 12 以前では許可の概念が無く、即座に granted が返る。
+  Future<void> _requestNotificationPermissionIfNeeded() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final status = await ph.Permission.notification.status;
+      if (status.isDenied) {
+        await ph.Permission.notification.request();
+      }
+    } catch (_) {
+      // 許可の確認に失敗しても、計測を始められなくする理由にはならない。
+    }
+  }
+
   /// 画面を消したりアプリを切り替えたりしても計測が止まらないよう、
   /// プラットフォームごとの設定を組み立てる。
   ///
@@ -244,6 +267,10 @@ class _RunningScreenState extends State<RunningScreen> with SingleTickerProvider
   Future<void> _handleStart() async {
     final ready = await _ensureLocationReady();
     if (!ready) return;
+    // 位置情報の許可が済んでから通知の許可を聞く。ダイアログが2つ続けて
+    // 出る形になるが、どちらも初回だけなので許容する。
+    await _requestNotificationPermissionIfNeeded();
+    if (!mounted) return;
     setState(() {
       _hasStarted = true;
       _isPaused = false;
