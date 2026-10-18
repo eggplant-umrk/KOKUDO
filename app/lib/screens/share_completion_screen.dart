@@ -8,6 +8,7 @@ import '../data/route_catalog.dart';
 import '../data/route_geometry.dart';
 import '../data/route_repository.dart';
 import '../models/national_route.dart';
+import '../models/run_log.dart';
 import '../theme/app_colors.dart';
 import '../widgets/gradient_button.dart';
 import '../widgets/share_card.dart';
@@ -23,6 +24,18 @@ Future<void> pushShareCompletion(NavigatorState navigator, NationalRoute route) 
       builder: (_) => ShareCompletionScreen(route: route),
     ),
   );
+}
+
+/// [routeId] の走行記録のうち、いちばん古いものの記録日時。記録が無ければ null。
+/// 完走シェア画像の「かかった日数」の起点に使う。
+@visibleForTesting
+DateTime? firstRunAtOf(List<RunLog> logs, String routeId) {
+  DateTime? first;
+  for (final log in logs) {
+    if (log.routeId != routeId) continue;
+    if (first == null || log.recordedAt.isBefore(first)) first = log.recordedAt;
+  }
+  return first;
 }
 
 /// 完走をSNSに投稿するための画像を作って共有する画面。
@@ -59,10 +72,15 @@ class _ShareCompletionScreenState extends State<ShareCompletionScreen> {
     await PrefectureShapes.load();
     final lines = await RouteGeometry.load(route.geojsonPath);
     final progress = await RouteRepository.instance.getProgress(route.routeId);
+    final logs = await RouteRepository.instance.getRunLogs();
 
     // 完走日が入っていない古いデータもあるので、その場合は今日にする。
     final completedAt = progress?.completedAt ?? DateTime.now();
-    final startedAt = progress?.startedAt;
+    // 「かかった日数」は、この国道を最初に走った日から数える。
+    // progress.startedAt は国道を選んだ日なので、前日に選んで翌日1日で
+    // 走り切ると「2日」になっていた。走行記録が見つからない古いデータ
+    // (記録だけ消した等)では、これまでどおり選んだ日を使う。
+    final startedAt = firstRunAtOf(logs, route.routeId) ?? progress?.startedAt;
     // 初日を1日目として数える。開始日が無ければ1日にしておく。
     final days = startedAt == null
         ? 1
